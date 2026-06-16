@@ -33,7 +33,7 @@
   .stat-card .val { font-size: 14px; font-weight: 700; color: #0f172a; }
   .stat-card .amt { font-size: 13px; color: #003087; font-weight: 600; }
   .accordion-item { border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 6px; overflow: hidden; }
-  .accordion-header { background: #f8fafc; padding: 10px 14px; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; cursor: pointer; user-select: none; }
+  .accordion-header { background: #f8fafc; padding: 10px 14px; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; cursor: pointer; user-select: none; transition: background 0.15s; }
   .accordion-header:hover { background: #f1f5f9; }
   .accordion-content { padding: 12px; font-size: 12px; display: none; background: #fff; border-top: 1px solid #edf2f7; }
   .accordion-content table { width: 100%; border-collapse: collapse; margin-top: 4px; }
@@ -90,7 +90,7 @@
           <div class="row"><span></span><span class="amt" id="total-a-amt">0원</span></div>
         </div>
         <div class="stat-card">
-          <div class="row"><span class="label">Layer B (시군구 모수)</span><span class="val" id="total-b-count">0개 지역 체결</span></div>
+          <div class="row"><span class="label">Layer B (228개 시군구)</span><span class="val" id="total-b-count">0개 지역 체결</span></div>
           <div class="row"><span></span><span class="amt" id="total-b-amt">0원</span></div>
         </div>
         <div class="stat-card" style="border-left: 4px solid #003087;">
@@ -160,7 +160,8 @@ window.addEventListener('DOMContentLoaded', () => {
         skipEmptyLines: true,
         transformHeader: h => h ? h.trim() : ""
       });
-      rawCsvData = parsed.data;
+      // 데이터를 불러올 때 단 한 번만 1000 곱하기 및 정제를 수행하여 고정 저장합니다.
+      rawCsvData = parsed.data.filter(r => r['시도']).map(processCsvRow);
       initDashboard();
     })
     .catch(err => {
@@ -171,7 +172,7 @@ window.addEventListener('DOMContentLoaded', () => {
 function initDashboard() {
   renderMap();
   calculateGlobalStats();
-  renderGlobalAccordion();
+  renderGlobalAccordion(); // 초기 1회 렌더링 (이후 필터 변경에 영향받지 않음)
 }
 
 function toggleFilter(category, value) {
@@ -192,7 +193,7 @@ function toggleFilter(category, value) {
   }
   renderMap();
   calculateGlobalStats();
-  renderGlobalAccordion();
+  // ★ 주의: renderGlobalAccordion()은 여기서 호출하지 않습니다. (고정 데이터 유지)
 }
 
 function setTargetLayer(scope) {
@@ -214,6 +215,7 @@ function cleanNum(val) {
   return parseFloat(s) || 0;
 }
 
+// 데이터를 1000 단위로 확장하고 조건에 맞게 세팅하는 전처리 함수
 function processCsvRow(row) {
   let rawSido = (row['시도'] || '').trim();
   let matchedSido = SIDO_NAME_MAP[rawSido] || rawSido;
@@ -223,6 +225,9 @@ function processCsvRow(row) {
   let v_신용 = row['신용정보(\)'] || row['신용정보'] || 0;
   let v_전자 = row['전자압류(\)'] || row['전자압류'] || 0;
   let v_egs = row['EGS (\)'] || row['EGS'] || 0;
+
+  // 모든 합계 금액에 1000을 곱해서 원 단위로 변환
+  let amt_total = cleanNum(row['합계']) * 1000;
 
   return {
     layer: (row['Layer'] || '').trim(),
@@ -236,18 +241,20 @@ function processCsvRow(row) {
     신용정보: parseInt(row['신용정보']) === 1,
     전자압류: parseInt(row['전자압류']) === 1,
     EGS: parseInt(row['EGS']) === 1,
-    amt_지방세: cleanNum(row['지방세']), 
-    amt_세외수입: cleanNum(row['세외수입']),
-    amt_기타: cleanNum(row['기타']),
-    amt_신용정보: cleanNum(v_신용),
-    amt_전자압류: cleanNum(v_전자),
-    amt_EGS: cleanNum(v_egs),
-    amt_total: cleanNum(row['합계'])
+    amt_total: amt_total,
+    // 부서 값이 1인 경우에만 해당 행의 합계를 가져옵니다.
+    amt_지방세: parseInt(row['지방세']) === 1 ? amt_total : 0,
+    amt_세외수입: parseInt(row['세외수입']) === 1 ? amt_total : 0,
+    amt_기타: parseInt(row['기타']) === 1 ? amt_total : 0,
+    amt_신용정보: cleanNum(v_신용) * 1000,
+    amt_전자압류: cleanNum(v_전자) * 1000,
+    amt_EGS: cleanNum(v_egs) * 1000
   };
 }
 
+// 상단 필터 버튼들에 반응하여 실시간으로 걸러진 데이터를 내보냅니다.
 function getFilteredData() {
-  return rawCsvData.map(processCsvRow).filter(item => {
+  return rawCsvData.filter(item => {
     if (currentFilters.year && item.year !== currentFilters.year) return false;
     if (currentFilters.dept && !item[currentFilters.dept]) return false;
     if (currentFilters.type && !item[currentFilters.type]) return false;
@@ -255,18 +262,22 @@ function getFilteredData() {
   });
 }
 
-function checkCoverage(sidoName, sigunguName = null) {
+// 지도 영역 색칠 판별 로직 (시군구 오류 해결)
+function checkCoverage(featureProps) {
   const filtered = getFilteredData();
   const isDefaultFilter = !currentFilters.dept && !currentFilters.type;
 
-  let normSido = SIDO_NAME_MAP[sidoName] || sidoName;
-
   if (activeLayerScope === 'A') {
-    return filtered.some(d => d.sido === normSido && (isDefaultFilter ? d.anyContract : true));
+    let sido = featureProps.CTP_KOR_NM || featureProps.SIDONM || featureProps.sido_name || featureProps.name;
+    if (!sido) return false;
+    let matchedSido = SIDO_NAME_MAP[sido] || sido;
+    return filtered.some(d => d.sido === matchedSido && (isDefaultFilter ? d.anyContract : true));
   } else {
-    if (!sigunguName) return false;
-    let normSigungu = DISTRICT_MAP[sigunguName] || sigunguName;
-    return filtered.some(d => d.sido === normSido && d.sigungu === normSigungu && (isDefaultFilter ? d.anyContract : true));
+    // Layer B 모드일 때: 상위 시도 이름 매칭을 건너뛰고 바로 시군구 이름으로 매칭 검사
+    let sigungu = featureProps.SIG_KOR_NM || featureProps.SIGUNGU_NM || featureProps.sigungu_name || featureProps.name;
+    if (!sigungu) return false;
+    let matchedSigungu = DISTRICT_MAP[sigungu] || sigungu;
+    return filtered.some(d => d.sigungu === matchedSigungu && (isDefaultFilter ? d.anyContract : true));
   }
 }
 
@@ -278,32 +289,28 @@ function renderMap() {
   
   L.geoJSON(targetGeoJson, {
     style: function(feature) {
-      let props = feature.properties || {};
-      let sido = props.CTP_KOR_NM || props.SIDONM || props.sido_name || props.name;
-      let sigungu = props.SIG_KOR_NM || props.SIGUNGU_NM || props.sigungu_name;
-      
-      let matchedSido = SIDO_NAME_MAP[sido] || sido;
-      let isCovered = checkCoverage(matchedSido, sigungu);
-      
       return {
-        fillColor: isCovered ? '#003087' : '#d4d9e5',
-        fillOpacity: isCovered ? 0.75 : 0.4,
+        fillColor: checkCoverage(feature.properties) ? '#003087' : '#d4d9e5',
+        fillOpacity: checkCoverage(feature.properties) ? 0.75 : 0.4,
         color: '#ffffff',
         weight: activeLayerScope === 'A' ? 1.8 : 1,
       };
     },
     onEachFeature: function(feature, layer) {
       let props = feature.properties || {};
-      let sido = props.CTP_KOR_NM || props.SIDONM || props.sido_name || props.name;
-      let sigungu = props.SIG_KOR_NM || props.SIGUNGU_NM || props.sigungu_name;
-      
-      let matchedSido = SIDO_NAME_MAP[sido] || sido;
-      let displayName = activeLayerScope === 'A' ? matchedSido : sigungu;
-      
-      if (!displayName) return;
+      let displayName = "";
+      let matchedSido = "";
 
-      if (activeLayerScope === 'B' && DISTRICT_MAP[displayName]) {
-        displayName = DISTRICT_MAP[displayName];
+      if (activeLayerScope === 'A') {
+        let sido = props.CTP_KOR_NM || props.SIDONM || props.sido_name || props.name;
+        if (!sido) return;
+        matchedSido = SIDO_NAME_MAP[sido] || sido;
+        displayName = matchedSido;
+      } else {
+        // Layer B 라벨 추출 완벽 보완
+        let sigungu = props.SIG_KOR_NM || props.SIGUNGU_NM || props.sigungu_name || props.name;
+        if (!sigungu) return;
+        displayName = DISTRICT_MAP[sigungu] || sigungu;
       }
 
       let targetCentroid = null;
@@ -321,7 +328,17 @@ function renderMap() {
       }
       
       layer.on({
-        click: () => { showTargetDetailPanel(matchedSido, sigungu); },
+        click: () => { 
+          // Layer B를 클릭했을 때 어느 시도인지 원본 데이터에서 찾아 연동
+          let searchSido = matchedSido;
+          if (activeLayerScope === 'B') {
+            let found = rawCsvData.find(d => d.sigungu === displayName);
+            searchSido = found ? found.sido : "";
+          }
+          if (searchSido) {
+            showTargetDetailPanel(searchSido, displayName);
+          }
+        },
         mouseover: (e) => { e.target.setStyle({ fillOpacity: 0.9 }); },
         mouseout: (e) => { e.target.setStyle({ fillOpacity: activeLayerScope === 'A' ? 0.75 : 0.4 }); }
       });
@@ -424,29 +441,32 @@ function showTargetDetailPanel(sido, sigungu) {
   `;
 }
 
+// ★ 필터와 상관없이 항상 고정된 원본 데이터(rawCsvData)를 사용하여 표를 그립니다.
 function renderGlobalAccordion() {
   const container = document.getElementById('sido-accordion-container');
   container.innerHTML = '';
   
-  const filtered = getFilteredData();
   const uniqueSidos = ["서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시", "대전광역시", "울산광역시", "세종특별자치시", "경기도", "강원도", "충청북도", "충청남도", "전라북도", "전라남도", "경상북도", "경상남도", "제주특별자치도"];
 
   uniqueSidos.forEach(sidoName => {
-    let sidosData = filtered.filter(d => d.sido === sidoName);
+    // 필터링되지 않은 전체 데이터에서 시도 정보 추출
+    let sidosData = rawCsvData.filter(d => d.sido === sidoName);
     
+    // 해당 시도 소속 전체 행의 합계 총합 (657,000원 등 완벽 구현)
+    let total_부서 = sidosData.reduce((a,c) => a + c.amt_total, 0);
+    
+    // 각 부서명이 1인 행들의 전체 합계값만 더한 수치
     let sum_지방세 = sidosData.reduce((a,c) => a + c.amt_지방세, 0);
     let sum_세외수입 = sidosData.reduce((a,c) => a + c.amt_세외수입, 0);
     let sum_기타부서 = sidosData.reduce((a,c) => a + c.amt_기타, 0);
-    let total_부서 = sum_지방세 + sum_세외수입 + sum_기타부서;
 
     const accordionItem = document.createElement('div');
     accordionItem.className = 'accordion-item';
     
-    // 토글 열림 상태 추적을 위한 고유 컴포넌트 마크업 구조
     accordionItem.innerHTML = `
       <div class="accordion-header" onclick="toggleAccordionElement(this)">
-        <span>${sidoName}</span>
-        <span style="color:#003087;" class="amt-indicator" data-amt="${total_부서}">${total_부서.toLocaleString()}원 ▼</span>
+        <span style="pointer-events:none;">${sidoName}</span>
+        <span style="color:#003087; pointer-events:none;" class="amt-indicator" data-amt="${total_부서}">${total_부서.toLocaleString()}원 ▼</span>
       </div>
       <div class="accordion-content">
         <table>
@@ -461,7 +481,7 @@ function renderGlobalAccordion() {
             <tr><td>세외수입</td><td style="text-align: right; font-weight: 600;">${sum_세외수입.toLocaleString()}원</td></tr>
             <tr><td>기타</td><td style="text-align: right; font-weight: 600;">${sum_기타부서.toLocaleString()}원</td></tr>
             <tr style="background:#f4f6fb; font-weight:700;">
-              <td style="color:#003087;">부서 총합계</td>
+              <td style="color:#003087;">총 합계</td>
               <td style="text-align: right; color:#003087; font-size:13px;">${total_부서.toLocaleString()}원</td>
             </tr>
           </tbody>
@@ -472,14 +492,14 @@ function renderGlobalAccordion() {
   });
 }
 
+// 토글 글자 증발 현상 방어 및 열림/닫힘 UI 핸들러
 function toggleAccordionElement(headerEl) {
   const contentEl = headerEl.nextElementSibling;
   const indicator = headerEl.querySelector('.amt-indicator');
-  const isVisible = contentEl.style.display === 'block';
+  const isVisible = contentEl.style.getPropertyValue('display') === 'block';
   
-  contentEl.style.display = isVisible ? 'none' : 'block';
+  contentEl.style.setProperty('display', isVisible ? 'none' : 'block');
   
-  // 가공 텍스트 증발 전면 보정법 적용
   let amtValue = parseInt(indicator.getAttribute('data-amt')) || 0;
   indicator.innerText = isVisible ? `${amtValue.toLocaleString()}원 ▼` : `${amtValue.toLocaleString()}원 ▲`;
 }
