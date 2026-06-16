@@ -43,7 +43,7 @@
   .badge-light.on { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
   .badge-light.active-contract { background: #dcfce7; color: #15803d; }
   .badge-light.no-contract { background: #fee2e2; color: #b91c1c; }
-  .map-label { background: transparent; border: none; box-shadow: none; font-size: 11px; font-weight: 700; color: #1e293b; text-shadow: -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff, 2px 2px 0 #fff; text-align: center; white-space: nowrap; }
+  .map-label { background: transparent; border: none; box-shadow: none; font-size: 11px; font-weight: 700; color: #1e293b; text-shadow: -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff, 2px 2px 0 #fff; text-align: center; white-space: nowrap; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -131,7 +131,10 @@ const SIDO_NAME_MAP = {
   "서울시":"서울특별시", "부산시":"부산광역시", "대구시":"대구광역시", "인천시":"인천광역시", 
   "광주시":"광주광역시", "대전시":"대전광역시", "울산시":"울산광역시", "세종시":"세종특별자치시", 
   "경기도":"경기도", "강원도":"강원도", "충북":"충청북도", "충남":"충청남도", 
-  "전북":"전라북도", "전남":"전라남도", "경북":"경상북도", "경남":"경상남도", "제주도":"제주특별자치도"
+  "전북":"전라북도", "전남":"전라남도", "경북":"경상북도", "경남":"경상남도", "제주도":"제주특별자치도",
+  "서울특별시":"서울특별시", "부산광역시":"부산광역시", "대구광역시":"대구광역시", "인천광역시":"인천광역시",
+  "광주광역시":"광주광역시", "대전광역시":"대전광역시", "울산광역시":"울산광역시", "세종특별자치시":"세종특별자치시",
+  "충청북도":"충청북도", "충청남도":"충청남도", "전라북도":"전라북도", "전라남도":"전라남도", "경상북도":"경상북도", "경상남도":"경상남도", "제주특별자치도":"제주특별자치도"
 };
 
 let currentFilters = { year: '2026', dept: null, type: null };
@@ -145,20 +148,27 @@ L.control.zoom({ position: 'topleft' }).addTo(map);
 geojsonGroup = L.layerGroup().addTo(map);
 labelGroup = L.layerGroup().addTo(map);
 
-// ★ 파일명을 bprdata.csv로 오타 전면 교정 완료!
 window.addEventListener('DOMContentLoaded', () => {
   fetch('./bprdata.csv')
     .then(res => {
-      if(!res.ok) throw new Error("CSV 로드 실패");
+      if(!res.ok) throw new Error("bprdata.csv 네트워크 응답 오류");
       return res.text();
     })
     .then(text => {
-      const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+      // Papa.parse 공백 자동 제거 옵션 활성화
+      const parsed = Papa.parse(text, { 
+        header: true, 
+        skipEmptyLines: true,
+        transformHeader: h => h.trim() // 헤더 공백 제거
+      });
       rawCsvData = parsed.data;
+      
+      console.log("📊 [CSV 파싱 데이터 첫 행 샘플]:", rawCsvData[0]);
+      
       initDashboard();
     })
     .catch(err => {
-      alert("bprdata.csv 파일을 찾을 수 없습니다. GitHub 저장소 최상단에 올바른 이름으로 업로드되었는지 다시 확인해주세요.");
+      alert("데이터 로드 실패: " + err.message);
     });
 });
 
@@ -208,13 +218,20 @@ function cleanNum(val) {
 }
 
 function processCsvRow(row) {
-  let matchedSido = SIDO_NAME_MAP[row['시도']] || row['시도'];
-  let rawSigungu = row['시군구'] || '';
+  // 데이터 안전 정제 처리 (.trim())
+  let rawSido = (row['시도'] || '').trim();
+  let matchedSido = SIDO_NAME_MAP[rawSido] || rawSido;
+  let rawSigungu = (row['시군구'] || '').trim();
   let matchedSigungu = DISTRICT_MAP[rawSigungu] || rawSigungu;
   
+  // 가변 헤더 매칭 안전망 보완
+  let v_신용 = row['신용정보(\)'] || row['신용정보'] || 0;
+  let v_전자 = row['전자압류(\)'] || row['전자압류'] || 0;
+  let v_egs = row['EGS (\)'] || row['EGS'] || 0;
+
   return {
-    layer: row['Layer'],
-    year: row['계약연도'],
+    layer: (row['Layer'] || '').trim(),
+    year: (row['계약연도'] || '').trim(),
     sido: matchedSido,
     sigungu: matchedSigungu,
     anyContract: parseInt(row['계약유형_계약여부']) === 1 || parseInt(row['부서_계약여부']) === 1,
@@ -227,9 +244,9 @@ function processCsvRow(row) {
     amt_지방세: cleanNum(row['지방세']), 
     amt_세외수입: cleanNum(row['세외수입']),
     amt_기타: cleanNum(row['기타']),
-    amt_신용정보: cleanNum(row['신용정보(\)']),
-    amt_전자압류: cleanNum(row['전자압류(\)']),
-    amt_EGS: cleanNum(row['EGS (\)']),
+    amt_신용정보: cleanNum(v_신용),
+    amt_전자압류: cleanNum(v_전자),
+    amt_EGS: cleanNum(v_egs),
     amt_total: cleanNum(row['합계'])
   };
 }
@@ -256,12 +273,13 @@ function checkCoverage(sidoName, sigunguName = null) {
   }
 }
 
-// ★ 지역명 표시 버튼과 라벨 위치 보정 자동 연동
 function renderMap() {
   geojsonGroup.clearLayers();
   labelGroup.clearLayers();
   
   const targetGeoJson = activeLayerScope === 'A' ? SIDO_GEOJSON : SIGUNGU_GEOJSON;
+  const filteredCount = getFilteredData().length;
+  console.log("🔍 [현재 필터링된 유효 데이터 행 개수]:", filteredCount);
   
   L.geoJSON(targetGeoJson, {
     style: function(feature) {
@@ -280,14 +298,19 @@ function renderMap() {
       let sigungu = feature.properties.SIG_KOR_NM;
       let displayName = activeLayerScope === 'A' ? sido : sigungu;
       
-      // 구 단위 텍스트 2단 통합 매칭 처리
       if (activeLayerScope === 'B' && DISTRICT_MAP[displayName]) {
         displayName = DISTRICT_MAP[displayName];
       }
 
-      // centroids.js 좌표 데이터 기반으로 지도 라벨 동적 추출
+      // 라벨 자동 노출 매칭 조건 보완
       if(SIDO_CENTROIDS[displayName]) {
         let latlng = SIDO_CENTROIDS[displayName];
+        L.marker(latlng, {
+          icon: L.divIcon({ className: 'map-label', html: displayName, iconSize: [120, 20], iconAnchor: [60, 10] })
+        }).addTo(labelGroup);
+      } else if (activeLayerScope === 'A' && displayName.substring(0,2) && SIDO_CENTROIDS[displayName.substring(0,2)]) {
+        // 이름 앞 두 글자 축약 매칭 시도 (예: 서울특별시 -> 서울)
+        let latlng = SIDO_CENTROIDS[displayName.substring(0,2)];
         L.marker(latlng, {
           icon: L.divIcon({ className: 'map-label', html: displayName, iconSize: [120, 20], iconAnchor: [60, 10] })
         }).addTo(labelGroup);
@@ -342,7 +365,6 @@ function showTargetDetailPanel(sido, sigungu) {
   
   let subBItems = filtered.filter(d => d.layer === 'B' && d.sido === sido);
   
-  // 가공 리스트 중복 제거 처리
   let uniqueBMap = {};
   subBItems.forEach(b => {
     if(!uniqueBMap[b.sigungu]) {
@@ -403,7 +425,7 @@ function renderGlobalAccordion() {
   container.innerHTML = '';
   
   const filtered = getFilteredData();
-  const uniqueSidos = Object.values(SIDO_NAME_MAP);
+  const uniqueSidos = ["서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시", "대전광역시", "울산광역시", "세종특별자치시", "경기도", "강원도", "충청북도", "충청남도", "전라북도", "전라남도", "경상북도", "경상남도", "제주특별자치도"];
 
   uniqueSidos.forEach(sidoName => {
     let sidosData = filtered.filter(d => d.sido === sidoName);
