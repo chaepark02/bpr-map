@@ -113,6 +113,7 @@
 </div>
 
 <script>
+// 구 단위 지자체 통합을 위한 사전 정의 맵
 const DISTRICT_MAP = {
   "수원시장안구":"수원시","수원시권선구":"수원시","수원시팔달구":"수원시","수원시영통구":"수원시",
   "성남시수정구":"성남시","성남시중원구":"성남시","성남시분당구":"성남시",
@@ -127,6 +128,7 @@ const DISTRICT_MAP = {
   "창원시의창구":"창원시","창원시성산구":"창원시","창원시마산합포구":"창원시","창원시마산회원구":"창원시","창원어진해구":"창원시"
 };
 
+// 시도 단위 표준 매핑 테이블
 const SIDO_NAME_MAP = {
   "서울시":"서울특별시", "부산시":"부산광역시", "대구시":"대구광역시", "인천시":"인천광역시", 
   "광주시":"광주광역시", "대전시":"대전광역시", "울산시":"울산광역시", "세종시":"세종특별자치시", 
@@ -151,20 +153,21 @@ labelGroup = L.layerGroup().addTo(map);
 window.addEventListener('DOMContentLoaded', () => {
   fetch('./bprdata.csv')
     .then(res => {
-      if(!res.ok) throw new Error("bprdata.csv 네트워크 응답 오류");
+      if(!res.ok) throw new Error("bprdata.csv를 찾을 수 없습니다.");
       return res.text();
     })
     .then(text => {
+      // 업로드한 최신 CSV의 컬럼 형태에 맞게 공백 강제 Trimming 처리
       const parsed = Papa.parse(text, { 
         header: true, 
         skipEmptyLines: true,
-        transformHeader: h => h.trim()
+        transformHeader: h => h ? h.trim() : ""
       });
       rawCsvData = parsed.data;
       initDashboard();
     })
     .catch(err => {
-      alert("데이터 로드 실패: " + err.message);
+      alert("데이터를 로드하는 중 오류가 발생했습니다: " + err.message);
     });
 });
 
@@ -213,12 +216,14 @@ function cleanNum(val) {
   return parseFloat(s) || 0;
 }
 
+// 고도화용 CSV 컬럼 순서 및 인덱스 수동 강제 정제 로직
 function processCsvRow(row) {
   let rawSido = (row['시도'] || '').trim();
   let matchedSido = SIDO_NAME_MAP[rawSido] || rawSido;
   let rawSigungu = (row['시군구'] || '').trim();
   let matchedSigungu = DISTRICT_MAP[rawSigungu] || rawSigungu;
   
+  // 업로드하신 특수 기호가 포함된 금액 열 명칭 연동 세팅
   let v_신용 = row['신용정보(\)'] || row['신용정보'] || 0;
   let v_전자 = row['전자압류(\)'] || row['전자압류'] || 0;
   let v_egs = row['EGS (\)'] || row['EGS'] || 0;
@@ -290,18 +295,18 @@ function renderMap() {
       let sigungu = feature.properties.SIG_KOR_NM;
       let displayName = activeLayerScope === 'A' ? sido : sigungu;
       
-      if (!displayName) return; // ★ 빈 데이터 방어 코드 삽입 (undefined 해결)
+      // ★ 텍스트가 유실되었을 경우 예외 방어 조건 구축 완료 (substring 에러 원천 해결)
+      if (!displayName || typeof displayName !== 'string') return;
 
       if (activeLayerScope === 'B' && DISTRICT_MAP[displayName]) {
         displayName = DISTRICT_MAP[displayName];
       }
 
-      // ★ substring 제거 및 안전한 포함(includes) 연산 기법 도입으로 텍스트 라벨 매칭 복구 완료
+      // 안전한 텍스트 맵 라벨 매칭 로직 적용
       let targetCentroid = null;
       if (SIDO_CENTROIDS[displayName]) {
         targetCentroid = SIDO_CENTROIDS[displayName];
       } else {
-        // 이름 일부를 기반으로 한 좌표 사전 매칭 역추적 (예: '경기' -> '경기도')
         const foundKey = Object.keys(SIDO_CENTROIDS).find(k => k.includes(displayName) || displayName.includes(k));
         if (foundKey) targetCentroid = SIDO_CENTROIDS[foundKey];
       }
