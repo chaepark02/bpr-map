@@ -160,7 +160,6 @@ window.addEventListener('DOMContentLoaded', () => {
         skipEmptyLines: true,
         transformHeader: h => h ? h.trim() : ""
       });
-      // 데이터를 불러올 때 단 한 번만 1000 곱하기 및 정제를 수행하여 고정 저장합니다.
       rawCsvData = parsed.data.filter(r => r['시도']).map(processCsvRow);
       initDashboard();
     })
@@ -172,7 +171,7 @@ window.addEventListener('DOMContentLoaded', () => {
 function initDashboard() {
   renderMap();
   calculateGlobalStats();
-  renderGlobalAccordion(); // 초기 1회 렌더링 (이후 필터 변경에 영향받지 않음)
+  renderGlobalAccordion(); 
 }
 
 function toggleFilter(category, value) {
@@ -193,7 +192,6 @@ function toggleFilter(category, value) {
   }
   renderMap();
   calculateGlobalStats();
-  // ★ 주의: renderGlobalAccordion()은 여기서 호출하지 않습니다. (고정 데이터 유지)
 }
 
 function setTargetLayer(scope) {
@@ -215,7 +213,6 @@ function cleanNum(val) {
   return parseFloat(s) || 0;
 }
 
-// 데이터를 1000 단위로 확장하고 조건에 맞게 세팅하는 전처리 함수
 function processCsvRow(row) {
   let rawSido = (row['시도'] || '').trim();
   let matchedSido = SIDO_NAME_MAP[rawSido] || rawSido;
@@ -226,7 +223,6 @@ function processCsvRow(row) {
   let v_전자 = row['전자압류(\)'] || row['전자압류'] || 0;
   let v_egs = row['EGS (\)'] || row['EGS'] || 0;
 
-  // 모든 합계 금액에 1000을 곱해서 원 단위로 변환
   let amt_total = cleanNum(row['합계']) * 1000;
 
   return {
@@ -242,7 +238,6 @@ function processCsvRow(row) {
     전자압류: parseInt(row['전자압류']) === 1,
     EGS: parseInt(row['EGS']) === 1,
     amt_total: amt_total,
-    // 부서 값이 1인 경우에만 해당 행의 합계를 가져옵니다.
     amt_지방세: parseInt(row['지방세']) === 1 ? amt_total : 0,
     amt_세외수입: parseInt(row['세외수입']) === 1 ? amt_total : 0,
     amt_기타: parseInt(row['기타']) === 1 ? amt_total : 0,
@@ -252,7 +247,6 @@ function processCsvRow(row) {
   };
 }
 
-// 상단 필터 버튼들에 반응하여 실시간으로 걸러진 데이터를 내보냅니다.
 function getFilteredData() {
   return rawCsvData.filter(item => {
     if (currentFilters.year && item.year !== currentFilters.year) return false;
@@ -262,22 +256,17 @@ function getFilteredData() {
   });
 }
 
-// 지도 영역 색칠 판별 로직 (시군구 오류 해결)
-function checkCoverage(featureProps) {
+function checkCoverage(sidoName, sigunguName = null) {
   const filtered = getFilteredData();
   const isDefaultFilter = !currentFilters.dept && !currentFilters.type;
 
   if (activeLayerScope === 'A') {
-    let sido = featureProps.CTP_KOR_NM || featureProps.SIDONM || featureProps.sido_name || featureProps.name;
-    if (!sido) return false;
-    let matchedSido = SIDO_NAME_MAP[sido] || sido;
-    return filtered.some(d => d.sido === matchedSido && (isDefaultFilter ? d.anyContract : true));
+    let normSido = SIDO_NAME_MAP[sidoName] || sidoName;
+    return filtered.some(d => d.sido === normSido && (isDefaultFilter ? d.anyContract : true));
   } else {
-    // Layer B 모드일 때: 상위 시도 이름 매칭을 건너뛰고 바로 시군구 이름으로 매칭 검사
-    let sigungu = featureProps.SIG_KOR_NM || featureProps.SIGUNGU_NM || featureProps.sigungu_name || featureProps.name;
-    if (!sigungu) return false;
-    let matchedSigungu = DISTRICT_MAP[sigungu] || sigungu;
-    return filtered.some(d => d.sigungu === matchedSigungu && (isDefaultFilter ? d.anyContract : true));
+    if (!sigunguName) return false;
+    let normSigungu = DISTRICT_MAP[sigunguName] || sigunguName;
+    return filtered.some(d => d.sigungu === normSigungu && (isDefaultFilter ? d.anyContract : true));
   }
 }
 
@@ -287,11 +276,28 @@ function renderMap() {
   
   const targetGeoJson = activeLayerScope === 'A' ? SIDO_GEOJSON : SIGUNGU_GEOJSON;
   
-  L.geoJSON(targetGeoJson, {
+  let geoJsonLayer = L.geoJSON(targetGeoJson, {
     style: function(feature) {
+      let props = feature.properties || {};
+      let isCovered = false;
+      
+      if (activeLayerScope === 'A') {
+        let sido = props.CTP_KOR_NM || props.SIDONM || props.sido_name || props.name;
+        if (sido) {
+          let matchedSido = SIDO_NAME_MAP[sido] || sido;
+          isCovered = checkCoverage(matchedSido, null);
+        }
+      } else {
+        let sigungu = props.SIG_KOR_NM || props.SIGUNGU_NM || props.sigungu_name || props.name;
+        if (sigungu) {
+          let matchedSigungu = DISTRICT_MAP[sigungu] || sigungu;
+          isCovered = checkCoverage(null, matchedSigungu);
+        }
+      }
+      
       return {
-        fillColor: checkCoverage(feature.properties) ? '#003087' : '#d4d9e5',
-        fillOpacity: checkCoverage(feature.properties) ? 0.75 : 0.4,
+        fillColor: isCovered ? '#003087' : '#d4d9e5',
+        fillOpacity: isCovered ? 0.75 : 0.4,
         color: '#ffffff',
         weight: activeLayerScope === 'A' ? 1.8 : 1,
       };
@@ -307,45 +313,49 @@ function renderMap() {
         matchedSido = SIDO_NAME_MAP[sido] || sido;
         displayName = matchedSido;
       } else {
-        // Layer B 라벨 추출 완벽 보완
         let sigungu = props.SIG_KOR_NM || props.SIGUNGU_NM || props.sigungu_name || props.name;
         if (!sigungu) return;
         displayName = DISTRICT_MAP[sigungu] || sigungu;
       }
-
-      let targetCentroid = null;
-      if (SIDO_CENTROIDS[displayName]) {
-        targetCentroid = SIDO_CENTROIDS[displayName];
-      } else {
-        const foundKey = Object.keys(SIDO_CENTROIDS).find(k => k.includes(displayName) || displayName.includes(k));
-        if (foundKey) targetCentroid = SIDO_CENTROIDS[foundKey];
-      }
-
-      if(targetCentroid) {
-        L.marker(targetCentroid, {
-          icon: L.divIcon({ className: 'map-label', html: displayName, iconSize: [120, 20], iconAnchor: [60, 10] })
-        }).addTo(labelGroup);
-      }
       
       layer.on({
         click: () => { 
-          // Layer B를 클릭했을 때 어느 시도인지 원본 데이터에서 찾아 연동
           let searchSido = matchedSido;
           if (activeLayerScope === 'B') {
             let found = rawCsvData.find(d => d.sigungu === displayName);
-            searchSido = found ? found.sido : "";
+            searchSido = found ? found.sido : "알수없음";
           }
-          if (searchSido) {
-            showTargetDetailPanel(searchSido, displayName);
-          }
+          showTargetDetailPanel(searchSido, displayName);
         },
         mouseover: (e) => { e.target.setStyle({ fillOpacity: 0.9 }); },
         mouseout: (e) => { e.target.setStyle({ fillOpacity: activeLayerScope === 'A' ? 0.75 : 0.4 }); }
       });
     }
-  }).addTo(geojsonGroup);
-  
-  if(showLabels) { map.addLayer(labelGroup); }
+  });
+
+  geoJsonLayer.addTo(geojsonGroup);
+
+  // ★ 라벨 좌표 동적 추출 로직 (Centroids.js 의존성 제거 완벽 해결)
+  geoJsonLayer.eachLayer(function(layer) {
+    let props = layer.feature.properties || {};
+    let displayName = "";
+    if (activeLayerScope === 'A') {
+      let sido = props.CTP_KOR_NM || props.SIDONM || props.sido_name || props.name;
+      if (sido) displayName = SIDO_NAME_MAP[sido] || sido;
+    } else {
+      let sigungu = props.SIG_KOR_NM || props.SIGUNGU_NM || props.sigungu_name || props.name;
+      if (sigungu) displayName = DISTRICT_MAP[sigungu] || sigungu;
+    }
+    
+    if (displayName) {
+      let center = layer.getBounds().getCenter();
+      L.marker(center, {
+        icon: L.divIcon({ className: 'map-label', html: displayName, iconSize: [120, 20], iconAnchor: [60, 10] })
+      }).addTo(labelGroup);
+    }
+  });
+
+  if (!showLabels) { map.removeLayer(labelGroup); }
 }
 
 function calculateGlobalStats() {
@@ -373,25 +383,42 @@ function calculateGlobalStats() {
   document.getElementById('total-all-amt').innerText = `${(sumA + sumB).toLocaleString()} 원`;
 }
 
+// ★ 클릭한 타겟(A 또는 B)의 1:1 맞춤 금액 산출 패널 적용 완료
 function showTargetDetailPanel(sido, sigungu) {
   document.getElementById('detail-fallback').style.display = 'none';
   const contentEl = document.getElementById('detail-content');
   contentEl.style.display = 'block';
   
-  const filtered = getFilteredData();
-  let itemA = filtered.find(d => d.layer === 'A' && d.sido === sido);
-  let statusALabel = (itemA && itemA.anyContract) ? '계약체결' : '미체결';
-  let statusAClass = (itemA && itemA.anyContract) ? 'active-contract' : 'no-contract';
-  let amtA = itemA ? itemA.amt_total : 0;
+  let isScopeA = activeLayerScope === 'A';
+  let titleName = isScopeA ? sido : sigungu;
+  let layerLabel = isScopeA ? 'A레이어(광역)' : 'B레이어(기초)';
   
-  let subBItems = filtered.filter(d => d.layer === 'B' && d.sido === sido);
+  // 1. 최상단 카드: 클릭한 해당 지역(A면 A, B면 B)만의 단독 데이터 계산
+  let targetItems = rawCsvData.filter(d => 
+    isScopeA ? (d.layer === 'A' && d.sido === sido) 
+             : (d.layer === 'B' && d.sido === sido && d.sigungu === sigungu)
+  );
+  
+  let hasContract = targetItems.some(d => d.anyContract);
+  let statusALabel = hasContract ? '계약체결' : '미체결';
+  let statusAClass = hasContract ? 'active-contract' : 'no-contract';
+  let targetAmt = targetItems.reduce((acc, curr) => acc + curr.amt_total, 0);
+
+  // 2. 하단 리스트: 클릭한 지역이 속한 시도의 모든 B레이어 현황 (총액 글자 삭제 및 원본 누적 버그 차단 완료)
+  let subBItems = rawCsvData.filter(d => d.layer === 'B' && d.sido === sido);
   
   let uniqueBMap = {};
   subBItems.forEach(b => {
     if(!uniqueBMap[b.sigungu]) {
-      uniqueBMap[b.sigungu] = b;
+      uniqueBMap[b.sigungu] = {
+        sigungu: b.sigungu,
+        anyContract: b.anyContract,
+        신용정보: b.신용정보,
+        전자압류: b.전자압류,
+        EGS: b.EGS
+      };
     } else {
-      uniqueBMap[b.sigungu].amt_total += b.amt_total;
+      if(b.anyContract) uniqueBMap[b.sigungu].anyContract = true;
       if(b.신용정보) uniqueBMap[b.sigungu].신용정보 = true;
       if(b.전자압류) uniqueBMap[b.sigungu].전자압류 = true;
       if(b.EGS) uniqueBMap[b.sigungu].EGS = true;
@@ -400,13 +427,15 @@ function showTargetDetailPanel(sido, sigungu) {
   
   let uniqueBList = Object.values(uniqueBMap);
   let activeBCount = uniqueBList.filter(b => b.anyContract).length;
-  let totalBAmt = uniqueBList.reduce((acc, curr) => acc + curr.amt_total, 0);
 
   let listHtml = '';
   uniqueBList.forEach(b => {
+    let isCurrent = (!isScopeA && b.sigungu === sigungu);
+    let bgStyle = isCurrent ? 'background:#e0f2fe; border-radius:4px; padding:4px;' : 'padding-bottom:6px; border-bottom:1px dashed #edf2f7;';
+    
     listHtml += `
-      <div style="margin-top:8px; padding-bottom:6px; border-bottom:1px dashed #edf2f7; display:flex; justify-content:space-between; align-items:center;">
-        <span style="font-weight:600;">• ${b.sigungu}</span>
+      <div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center; ${bgStyle}">
+        <span style="font-weight:${isCurrent?'700':'600'}; color:${isCurrent?'#0369a1':'#1a2340'};">• ${b.sigungu}</span>
         <div style="display:flex; gap:3px;">
           <span class="badge-light ${b.신용정보?'on':''}">신용</span>
           <span class="badge-light ${b.전자압류?'on':''}">압류</span>
@@ -418,21 +447,21 @@ function showTargetDetailPanel(sido, sigungu) {
 
   contentEl.innerHTML = `
     <div style="background:#f0f4fa; padding:12px; border-radius:6px; margin-bottom:12px;">
-      <h3 style="font-size:16px; margin-bottom:8px; color:#003087;">${sido} 광역현황</h3>
+      <h3 style="font-size:16px; margin-bottom:8px; color:#003087;">${titleName} 계약현황</h3>
       <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-        <span style="font-size:13px; color:#475569;">기관 계약 여부</span>
+        <span style="font-size:13px; color:#475569;">${layerLabel} 여부</span>
         <span class="badge-light ${statusAClass}">${statusALabel}</span>
       </div>
       <div style="display:flex; justify-content:space-between;">
-        <span style="font-size:13px; color:#475569;">A레이어 체결 금액</span>
-        <span style="font-weight:700; color:#0f172a;">${amtA.toLocaleString()}원</span>
+        <span style="font-size:13px; color:#475569;">해당 지역 체결 금액</span>
+        <span style="font-weight:700; color:#0f172a;">${targetAmt.toLocaleString()}원</span>
       </div>
     </div>
     
     <div style="border-top:1px solid #e2e8f0; padding-top:12px;">
-      <h4 style="font-size:14px; margin-bottom:6px; color:#334155;">하위 Layer B 연동 현황</h4>
+      <h4 style="font-size:14px; margin-bottom:6px; color:#334155;">${sido} 하위 시군구(B) 연동 현황</h4>
       <p style="font-size:12px; color:#64748b; margin-bottom:8px;">
-        소속 지자체 <strong>${uniqueBList.length}개 중 ${activeBCount}개 지역 체결</strong> / 총액: <span style="color:#003087; font-weight:700;">${totalBAmt.toLocaleString()}원</span>
+        소속 지자체 <strong>${uniqueBList.length}개 중 ${activeBCount}개 지역 체결</strong>
       </p>
       <div style="max-height:200px; overflow-y:auto; padding-right:4px;">
         ${listHtml || '<p style="color:#94a3b8; font-size:12px;">하위 지자체 데이터가 존재하지 않습니다.</p>'}
@@ -441,7 +470,6 @@ function showTargetDetailPanel(sido, sigungu) {
   `;
 }
 
-// ★ 필터와 상관없이 항상 고정된 원본 데이터(rawCsvData)를 사용하여 표를 그립니다.
 function renderGlobalAccordion() {
   const container = document.getElementById('sido-accordion-container');
   container.innerHTML = '';
@@ -449,13 +477,10 @@ function renderGlobalAccordion() {
   const uniqueSidos = ["서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시", "대전광역시", "울산광역시", "세종특별자치시", "경기도", "강원도", "충청북도", "충청남도", "전라북도", "전라남도", "경상북도", "경상남도", "제주특별자치도"];
 
   uniqueSidos.forEach(sidoName => {
-    // 필터링되지 않은 전체 데이터에서 시도 정보 추출
     let sidosData = rawCsvData.filter(d => d.sido === sidoName);
     
-    // 해당 시도 소속 전체 행의 합계 총합 (657,000원 등 완벽 구현)
     let total_부서 = sidosData.reduce((a,c) => a + c.amt_total, 0);
     
-    // 각 부서명이 1인 행들의 전체 합계값만 더한 수치
     let sum_지방세 = sidosData.reduce((a,c) => a + c.amt_지방세, 0);
     let sum_세외수입 = sidosData.reduce((a,c) => a + c.amt_세외수입, 0);
     let sum_기타부서 = sidosData.reduce((a,c) => a + c.amt_기타, 0);
@@ -492,7 +517,6 @@ function renderGlobalAccordion() {
   });
 }
 
-// 토글 글자 증발 현상 방어 및 열림/닫힘 UI 핸들러
 function toggleAccordionElement(headerEl) {
   const contentEl = headerEl.nextElementSibling;
   const indicator = headerEl.querySelector('.amt-indicator');
