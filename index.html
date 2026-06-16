@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BPR 계약 현황 지도</title>
+<title>BPR 계약 현황 대시보드</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="sido.js"></script>
 <script src="sigungu.js"></script>
 <script src="centroids.js"></script>
@@ -13,626 +14,485 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; background: #f4f6fb; color: #1a2340; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-  /* ── Header ── */
-  .header {
-    background: #fff; border-bottom: 1px solid #e2e6f0;
-    padding: 10px 20px; display: flex; align-items: center;
-    justify-content: space-between; flex-shrink: 0; gap: 12px; flex-wrap: wrap;
-    box-shadow: 0 1px 4px rgba(0,48,135,0.06);
-  }
-  .header-left { display: flex; align-items: center; gap: 12px; }
-  .header h1 { font-size: 15px; font-weight: 700; color: #003087; letter-spacing: 0.03em; }
-  .header-meta { font-size: 11px; color: #8f9ab8; }
-  .nice-bar { width: 4px; height: 20px; background: #003087; border-radius: 2px; }
+  /* Layout */
+  .container { display: flex; flex: 1; height: calc(100vh - 60px); overflow: hidden; }
+  .header { background: #fff; border-bottom: 1px solid #e2e6f0; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; height: 60px; box-shadow: 0 1px 4px rgba(0,48,135,0.06); }
+  .header h1 { font-size: 18px; color: #003087; font-weight: 700; }
+  
+  /* Filter Buttons */
+  .filter-group { display: flex; gap: 8px; align-items: center; }
+  .filter-label { font-size: 12px; font-weight: 600; color: #64748b; margin-right: 4px; }
+  .btn-choice { background: #fff; border: 1px solid #cbd5e1; padding: 6px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; transition: all 0.2s; font-weight: 500; }
+  .btn-choice:hover { background: #f8fafc; }
+  .btn-choice.active { background: #003087; color: #fff; border-color: #003087; font-weight: 600; }
 
-  /* ── Controls ── */
-  .controls {
-    background: #fff; border-bottom: 1px solid #e2e6f0;
-    padding: 8px 20px; display: flex; gap: 0; align-items: center;
-    flex-shrink: 0; flex-wrap: wrap; row-gap: 6px;
-  }
-  .ctrl-group { display: flex; align-items: center; gap: 6px; padding: 0 14px; }
-  .ctrl-group:first-child { padding-left: 0; }
-  .ctrl-sep { width: 1px; height: 22px; background: #e2e6f0; flex-shrink: 0; }
-  .ctrl-label { font-size: 10px; color: #8f9ab8; font-weight: 700; letter-spacing: 0.1em; white-space: nowrap; text-transform: uppercase; }
+  #map { flex: 1; height: 100%; background: #edf2f7; }
 
-  .btn {
-    padding: 4px 12px; border-radius: 5px; border: 1px solid #d8dff0;
-    background: #fff; color: #8f9ab8; font-size: 12px; font-weight: 600;
-    cursor: pointer; transition: all 0.15s; white-space: nowrap; font-family: inherit;
-  }
-  .btn:hover { border-color: #003087; color: #003087; background: #f0f4ff; }
-  .btn.active { background: #003087; border-color: #003087; color: #fff; box-shadow: 0 2px 8px rgba(0,48,135,0.2); }
-  .btn.active-year { background: #e8f0fe; border-color: #003087; color: #003087; font-weight: 700; }
+  /* Sidebar Dashboard */
+  .sidebar { width: 420px; background: #fff; border-left: 1px solid #e2e6f0; display: flex; flex-direction: column; overflow-y: auto; box-shadow: -2px 0 8px rgba(0,0,0,0.02); }
+  .panel-section { padding: 20px; border-bottom: 1px solid #edf2f7; }
+  .panel-title { font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+  .panel-title::before { content: ''; display: inline-block; width: 4px; height: 14px; background: #003087; border-radius: 2px; }
 
-  .btn-group { display: flex; border: 1px solid #d8dff0; border-radius: 5px; overflow: hidden; }
-  .btn-group .btn { border: none; border-radius: 0; border-right: 1px solid #d8dff0; }
-  .btn-group .btn:last-child { border-right: none; }
-  .btn-group .btn.active { box-shadow: none; }
+  /* Stats Widgets */
+  .stat-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
+  .stat-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
+  .stat-card .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .stat-card .label { font-size: 13px; color: #475569; font-weight: 500; }
+  .stat-card .val { font-size: 14px; font-weight: 700; color: #0f172a; }
+  .stat-card .amt { font-size: 13px; color: #003087; font-weight: 600; }
 
-  /* ── Data Status Bar ── */
-  .data-status-bar {
-    background: #f8f9fd; border-bottom: 1px solid #e2e6f0;
-    padding: 6px 20px; display: flex; align-items: center; gap: 14px;
-    flex-shrink: 0; flex-wrap: wrap;
-  }
-  .ds-label { font-size: 10px; color: #8f9ab8; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
-  .ds-sep { width: 1px; height: 16px; background: #e2e6f0; }
-  .ds-item { display: flex; align-items: center; gap: 6px; }
-  .ds-badge {
-    padding: 2px 9px; border-radius: 3px; font-size: 11px; font-weight: 500;
-    border: 1px solid #d8dff0; color: #adb8d0; background: #fff;
-    display: flex; align-items: center; gap: 5px; white-space: nowrap;
-  }
-  .ds-badge.loaded { border-color: #003087; color: #003087; background: #e8f0fe; }
-  .ds-dot { width: 6px; height: 6px; border-radius: 50%; background: #d8dff0; flex-shrink: 0; }
-  .ds-badge.loaded .ds-dot { background: #003087; }
-  .ds-upload-btn {
-    padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
-    border: 1px solid #d8dff0; color: #8f9ab8; background: #fff;
-    cursor: pointer; transition: all 0.15s; font-family: inherit;
-  }
-  .ds-upload-btn:hover { border-color: #003087; color: #003087; background: #f0f4ff; }
+  /* Accordion Component */
+  .accordion-item { border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 6px; overflow: hidden; }
+  .accordion-header { background: #f8fafc; padding: 10px 14px; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; cursor: pointer; user-select: none; }
+  .accordion-header:hover { background: #f1f5f9; }
+  .accordion-content { padding: 12px; font-size: 12px; display: none; background: #fff; border-top: 1px solid #edf2f7; }
+  .accordion-content table { width: 100%; border-collapse: collapse; }
+  .accordion-content th, .accordion-content td { padding: 6px; text-align: left; border-bottom: 1px solid #f1f5f9; }
+  .accordion-content th { color: #64748b; font-weight: 600; }
 
-  /* ── Main ── */
-  .main { display: flex; flex: 1; overflow: hidden; }
-  #map { flex: 1; background: #e8edf5; }
+  /* Badge Indicator Lights */
+  .badge-light { inline-size: max-content; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; background: #e2e8f0; color: #64748b; }
+  .badge-light.on { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+  .badge-light.active-contract { background: #dcfce7; color: #15803d; }
+  .badge-light.no-contract { background: #fee2e2; color: #b91c1c; }
 
-  /* ── Side Panel ── */
-  .side-panel {
-    width: 0; background: #fff; border-left: 1px solid #e2e6f0;
-    overflow: hidden; transition: width 0.2s ease; flex-shrink: 0;
-    box-shadow: -2px 0 12px rgba(0,48,135,0.06);
-  }
-  .side-panel.open { width: 280px; }
-  .panel-inner { width: 280px; padding: 18px; overflow-y: auto; height: 100%; }
-
-  .panel-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
-  .panel-region { font-size: 18px; font-weight: 700; color: #003087; line-height: 1.2; }
-  .panel-sub { font-size: 11px; color: #8f9ab8; margin-top: 3px; }
-  .panel-close { background: none; border: none; color: #adb8d0; cursor: pointer; font-size: 16px; padding: 0; line-height: 1; }
-  .panel-close:hover { color: #003087; }
-
-  .panel-kpi { background: #f0f4ff; border: 1px solid #d0dcf8; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
-  .panel-kpi-num { font-size: 28px; font-weight: 800; color: #003087; line-height: 1; }
-  .panel-kpi-label { font-size: 11px; color: #8f9ab8; margin-top: 3px; }
-  .panel-kpi-status { display: inline-block; margin-top: 8px; padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-  .status-ok   { background: #003087; color: #fff; }
-  .status-none { background: #eef0f5; color: #adb8d0; border: 1px solid #d8dff0; }
-
-  .panel-section { margin-bottom: 16px; }
-  .panel-section-title { font-size: 10px; font-weight: 700; color: #8f9ab8; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #e8edf5; }
-  .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid #f4f6fb; }
-  .stat-row:last-child { border-bottom: none; }
-  .stat-name { font-size: 12px; color: #5a6a8a; display: flex; align-items: center; gap: 7px; }
-  .stat-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-  .stat-value { font-size: 12px; font-weight: 700; }
-  .val-ok   { color: #003087; }
-  .val-none { color: #c8d0e0; }
-  .panel-no-data { text-align: center; padding: 16px 0; color: #c8d0e0; font-size: 12px; }
-
-  /* ── Status bar ── */
-  .statusbar { background: #fff; border-top: 1px solid #e2e6f0; padding: 5px 20px; font-size: 11px; color: #8f9ab8; flex-shrink: 0; }
-
-  /* ── Leaflet ── */
-  .leaflet-container { background: #dde4f0 !important; }
-  .leaflet-tile { filter: brightness(1.05) saturate(0.5) hue-rotate(200deg); }
-  .leaflet-control-zoom a { background: #fff !important; color: #003087 !important; border-color: #d8dff0 !important; font-weight: 700; }
-  .leaflet-control-zoom a:hover { background: #f0f4ff !important; }
-
-  /* ── Region Labels ── */
-  .region-label {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-  }
-  .region-label-text {
-    font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
-    font-size: 11px; font-weight: 600; color: #1a2340;
-    text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff,
-                 0 0 6px rgba(255,255,255,0.95);
-    white-space: nowrap; pointer-events: none; text-align: center;
-    transform: translate(-50%, -50%); display: inline-block;
-  }
-  .region-label-text.sido {
-    font-size: 12px; font-weight: 700; color: #003087;
-    text-shadow: 1px 1px 0 rgba(255,255,255,0.98), -1px -1px 0 rgba(255,255,255,0.98),
-                 1px -1px 0 rgba(255,255,255,0.98), -1px 1px 0 rgba(255,255,255,0.98),
-                 0 0 8px rgba(255,255,255,1);
-  }
-  .region-label-text.sigungu { font-size: 10px; font-weight: 600; color: #2a3a5c; }
-
-  /* ── Legend ── */
-  .map-legend {
-    background: #fff; border: 1px solid #e2e6f0; border-radius: 8px;
-    padding: 10px 14px; box-shadow: 0 2px 8px rgba(0,48,135,0.08);
-  }
-  .legend-title { font-size: 10px; font-weight: 700; color: #8f9ab8; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 7px; }
-  .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 11px; color: #5a6a8a; }
-  .legend-row:last-child { margin-bottom: 0; }
-  .legend-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
-
-  /* ── Loading ── */
-  #loading { position:fixed; inset:0; background:#f4f6fb; display:flex; align-items:center; justify-content:center; z-index:9999; flex-direction:column; gap:12px; }
-  .loading-spinner { width:32px; height:32px; border:3px solid #e2e6f0; border-top-color:#003087; border-radius:50%; animation: spin 0.8s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .loading-text { color: #8f9ab8; font-size: 13px; }
+  /* Tooltip and Labels */
+  .map-label { background: transparent; border: none; box-shadow: none; font-size: 11px; font-weight: 700; color: #334155; text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff; }
 </style>
 </head>
 <body>
 
-<div id="loading">
-  <div class="loading-spinner"></div>
-  <div class="loading-text">지도 불러오는 중…</div>
-</div>
-
-<!-- Header -->
 <div class="header">
-  <div class="header-left">
-    <div class="nice-bar"></div>
-    <h1>BPR 계약 현황 지도</h1>
-    <span class="header-meta">전국 250개 행정구역</span>
-  </div>
-</div>
-
-<!-- Controls -->
-<div class="controls">
-  <div class="ctrl-group">
-    <span class="ctrl-label">지역</span>
-    <div class="btn-group">
-      <button class="btn active" id="btn-layerA" onclick="setLayer('A')">시·도</button>
-      <button class="btn"        id="btn-layerB" onclick="setLayer('B')">시·군·구</button>
+  <h1>BPR 전국 계약 현황 분석 시스템</h1>
+  
+  <div style="display: flex; gap: 16px;">
+    <div class="filter-group">
+      <span class="filter-label">연도</span>
+      <button class="btn-choice" id="btn-yr-2025" onclick="toggleFilter('year', '2025')">2025</button>
+      <button class="btn-choice active" id="btn-yr-2026" onclick="toggleFilter('year', '2026')">2026</button>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">범위</span>
+      <button class="btn-choice active" id="btn-layer-A" onclick="setTargetLayer('A')">시도</button>
+      <button class="btn-choice" id="btn-layer-B" onclick="setTargetLayer('B')">시군구</button>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">부서</span>
+      <button class="btn-choice" id="btn-dept-지방세" onclick="toggleFilter('dept', '지방세')">지방세</button>
+      <button class="btn-choice" id="btn-dept-세외수입" onclick="toggleFilter('dept', '세외수입')">세외수입</button>
+      <button class="btn-choice" id="btn-dept-기타" onclick="toggleFilter('dept', '기타')">기타</button>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">유형</span>
+      <button class="btn-choice" id="btn-type-신용정보" onclick="toggleFilter('type', '신용정보')">신용정보</button>
+      <button class="btn-choice" id="btn-type-전자압류" onclick="toggleFilter('type', '전자압류')">전자압류</button>
+      <button class="btn-choice" id="btn-type-EGS" onclick="toggleFilter('type', 'EGS')">EGS</button>
+    </div>
+    <div class="filter-group">
+      <button class="btn-choice active" id="btn-label-toggle" onclick="toggleLabelVisibility()">지역명 표시</button>
     </div>
   </div>
-  <div class="ctrl-sep"></div>
-  <div class="ctrl-group">
-    <span class="ctrl-label">지역명</span>
-    <button class="btn active" id="btn-labels" onclick="toggleLabels()">지역명 표시</button>
-  </div>
-  <div class="ctrl-sep"></div>
-  <div class="ctrl-group">
-    <span class="ctrl-label">연도</span>
-    <button class="btn" id="btn-2025" onclick="toggleYear(2025)">2025</button>
-    <button class="btn" id="btn-2026" onclick="toggleYear(2026)">2026</button>
-    <button class="btn active" id="btn-yearAll" onclick="clearYear()">전체</button>
-  </div>
-  <div class="ctrl-sep"></div>
-  <div class="ctrl-group">
-    <span class="ctrl-label">계약유형</span>
-    <button class="btn" id="btn-신용정보" onclick="toggleFilter('contractType','신용정보')">신용정보</button>
-    <button class="btn" id="btn-전자압류" onclick="toggleFilter('contractType','전자압류')">전자압류</button>
-    <button class="btn" id="btn-EGS"     onclick="toggleFilter('contractType','EGS')">EGS</button>
-  </div>
-  <div class="ctrl-sep"></div>
-  <div class="ctrl-group">
-    <span class="ctrl-label">계약분류</span>
-    <button class="btn" id="btn-지방세"   onclick="toggleFilter('taxType','지방세')">지방세</button>
-    <button class="btn" id="btn-세외수입" onclick="toggleFilter('taxType','세외수입')">세외수입</button>
-    <button class="btn" id="btn-기타"     onclick="toggleFilter('taxType','기타')">기타</button>
-  </div>
 </div>
 
-<!-- Data Status Bar -->
-<div class="data-status-bar">
-  <span class="ds-label">데이터 현황</span>
-  <div class="ds-sep"></div>
-  <div class="ds-item">
-    <span id="badge-2025-type1" class="ds-badge"><span class="ds-dot"></span>2025 계약유형 — 미업로드</span>
-    <input type="file" id="csv-2025-type1" accept=".csv" style="display:none" onchange="loadCSV(event,'2025','type1')">
-    <button class="ds-upload-btn" onclick="document.getElementById('csv-2025-type1').click()">📂 업로드</button>
-  </div>
-  <div class="ds-sep"></div>
-  <div class="ds-item">
-    <span id="badge-2025-type2" class="ds-badge"><span class="ds-dot"></span>2025 계약분류 — 미업로드</span>
-    <input type="file" id="csv-2025-type2" accept=".csv" style="display:none" onchange="loadCSV(event,'2025','type2')">
-    <button class="ds-upload-btn" onclick="document.getElementById('csv-2025-type2').click()">📂 업로드</button>
-  </div>
-  <div class="ds-sep"></div>
-  <div class="ds-item">
-    <span id="badge-2026-type1" class="ds-badge"><span class="ds-dot"></span>2026 계약유형 — 미업로드</span>
-    <input type="file" id="csv-2026-type1" accept=".csv" style="display:none" onchange="loadCSV(event,'2026','type1')">
-    <button class="ds-upload-btn" onclick="document.getElementById('csv-2026-type1').click()">📂 업로드</button>
-  </div>
-  <div class="ds-sep"></div>
-  <div class="ds-item">
-    <span id="badge-2026-type2" class="ds-badge"><span class="ds-dot"></span>2026 계약분류 — 미업로드</span>
-    <input type="file" id="csv-2026-type2" accept=".csv" style="display:none" onchange="loadCSV(event,'2026','type2')">
-    <button class="ds-upload-btn" onclick="document.getElementById('csv-2026-type2').click()">📂 업로드</button>
-  </div>
-</div>
-
-<!-- Main -->
-<div class="main">
+<div class="container">
   <div id="map"></div>
-  <div class="side-panel" id="sidePanel">
-    <div class="panel-inner" id="panelInner"></div>
+  
+  <div class="sidebar">
+    <div class="panel-section" style="background: #f8fafc;">
+      <div class="panel-title">전국 전체계약 현황 총괄</div>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="row"><span class="label">Layer A (17개 시도)</span><span class="val" id="total-a-count">0개 체결</span></div>
+          <div class="row"><span></span><span class="amt" id="total-a-amt">0원</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="row"><span class="label">Layer B (시군구 모수)</span><span class="val" id="total-b-count">0개 지역 체결</span></div>
+          <div class="row"><span></span><span class="amt" id="total-b-amt">0원</span></div>
+        </div>
+        <div class="stat-card" style="border-left: 4px solid #003087;">
+          <div class="row"><span class="label" style="font-weight:700; color:#003087;">Total 합산 금액</span><span class="val" id="total-all-amt" style="color:#003087; font-size:16px;">0원</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section" id="detail-section">
+      <div class="panel-title">선택 지역 세부 계약분석</div>
+      <div id="detail-fallback" style="font-size:13px; color:#64748b; text-align:center; padding:20px 0;">
+        지도 위 행정구역을 클릭하시면 하위 연동 상세 정보가 실시간 집계됩니다.
+      </div>
+      <div id="detail-content" style="display: none;">
+        </div>
+    </div>
+
+    <div class="panel-section" style="flex: 1;">
+      <div class="panel-title">17개 시도별 세부 정보 종합</div>
+      <div id="sido-accordion-container">
+        </div>
+    </div>
   </div>
 </div>
-<div class="statusbar"><span id="status-text">CSV를 업로드하면 지도에 계약 현황이 표시됩니다.</span></div>
 
 <script>
-// ═══════════════════════════════════
-//  STATE
-// ═══════════════════════════════════
-const state = {
-  layer: 'A',
-  year: null,
-  contractType: null,
-  taxType: null,
-  showLabels: true,
-};
-
-let data1 = [];
-let data2 = [];
-
-const uploadStatus = {
-  '2025-type1': null, '2025-type2': null,
-  '2026-type1': null, '2026-type2': null,
-};
-
-// ═══════════════════════════════════
-//  NICE COLORS
-// ═══════════════════════════════════
-const C = {
-  active:        '#003087',   // NICE 메인 블루 — 계약 체결
-  activeHover:   '#00409e',
-  activeLight:   '#ccd8f0',   // 선택 하이라이트
-  none:          '#d4d9e5',   // 미체결 — 회색
-  noneHover:     '#bec4d4',
-  border:        '#b8c2d8',
-  borderActive:  '#003087',
-  selected:      '#7fa0d8',
-};
-
-// ═══════════════════════════════════
-//  MAP INIT
-// ═══════════════════════════════════
-const map = L.map('map', {
-  center: [36.5, 127.8], zoom: 7,
-  zoomControl: true, attributionControl: false, preferCanvas: false,
-});
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
-  maxZoom: 19
-}).addTo(map);
-
-// ═══════════════════════════════════
-//  구→시 매핑 테이블 (3단 행정구역 통합)
-// ═══════════════════════════════════
+// 3단 행정구역(구 단위 자지체) 자동 통합을 위한 동적 매핑 딕셔너리
 const DISTRICT_MAP = {
-  // 수원시
-  '수원시장안구':'수원시','수원시권선구':'수원시','수원시팔달구':'수원시','수원시영통구':'수원시',
-  // 성남시
-  '성남시수정구':'성남시','성남시중원구':'성남시','성남시분당구':'성남시',
-  // 안양시
-  '안양시만안구':'안양시','안양시동안구':'안양시',
-  // 고양시
-  '고양시덕양구':'고양시','고양시일산동구':'고양시','고양시일산서구':'고양시',
-  // 안산시
-  '안산시상록구':'안산시','안산시단원구':'안산시',
-  // 용인시
-  '용인시처인구':'용인시','용인시기흥구':'용인시','용인시수지구':'용인시',
-  // 천안시
-  '천안시동남구':'천안시','천안시서북구':'천안시',
-  // 청주시
-  '청주시상당구':'청주시','청주시서원구':'청주시','청주시흥덕구':'청주시','청주시청원구':'청주시',
-  // 포항시
-  '포항시남구':'포항시','포항시북구':'포항시',
-  // 전주시
-  '전주시완산구':'전주시','전주시덕진구':'전주시',
-  // 창원시
-  '창원시의창구':'창원시','창원시성산구':'창원시','창원시마산합포구':'창원시',
-  '창원시마산회원구':'창원시','창원시진해구':'창원시',
+  "수원시장안구":"수원시","수원시권선구":"수원시","수원시팔달구":"수원시","수원시영통구":"수원시",
+  "성남시수정구":"성남시","성남시중원구":"성남시","성남시분당구":"성남시",
+  "안양시만안구":"안양시","안양시동안구":"안양시",
+  "고양시덕양구":"고양시","고양시일산동구":"고양시","고양시일산서구":"고양시",
+  "안산시상록구":"안산시","안산시단원구":"안산시",
+  "용인시처인구":"용인시","용인시기흥구":"용인시","용인시수지구":"용인시",
+  "천안시동남구":"천안시","천안시서북구":"천안시",
+  "청주시상당구":"청주시","청주시서원구":"청주시","청주시흥덕구":"청주시","청주시청원구":"청주시",
+  "포항시남구":"포항시","포항시북구":"포항시",
+  "전주시완산구":"전주시","전주시덕진구":"전주시",
+  "창원시의창구":"창원시","창원시성산구":"창원시","창원시마산합포구":"창원시","창원시마산회원구":"창원시","창원어진해구":"창원시"
 };
 
-// CSV에 '수원시장안구'처럼 입력돼 있어도 '수원시'로 정규화
-function normalizeRegion(name) {
-  return DISTRICT_MAP[name] || name;
+// 시도 표준명 보정 데이터
+const SIDO_NAME_MAP = {
+  "서울시":"서울특별시", "부산시":"부산광역시", "대구시":"대구광역시", "인천시":"인천광역시", 
+  "광주시":"광주광역시", "대전시":"대전광역시", "울산시":"울산광역시", "세종시":"세종특별자치시", 
+  "경기도":"경기도", "강원도":"강원도", "충북":"충청북도", "충남":"충청남도", 
+  "전북":"전라북도", "전남":"전라남도", "경북":"경상북도", "경남":"경상남도", "제주도":"제주특별자치도"
+};
+
+// 대시보드 상태 관리 객체 (초기 상태 세팅)
+let currentFilters = {
+  year: '2026', // 옵션 B 기본값
+  dept: null,   // 선택되지 않으면 전체
+  type: null    // 선택되지 않으면 전체
+};
+let activeLayerScope = 'A'; // 디폴트 시도
+let showLabels = true;
+let rawCsvData = [];
+let map, geojsonGroup, labelGroup;
+
+// 지도 초기화
+map = L.map('map', { zoomControl: false }).setView([36.2, 127.8], 7.5);
+L.control.zoom({ position: 'topleft' }).addTo(map);
+geojsonGroup = L.layerGroup().addTo(map);
+labelGroup = L.layerGroup().addTo(map);
+
+// 대시보드 로드 시 깃허브 원격 서버 파일 자동 호출 기능
+window.addEventListener('DOMContentLoaded', () => {
+  fetch('brpdata.csv')
+    .then(res => {
+      if(!res.ok) throw new Error("CSV 원격 로드 실패");
+      return res.text();
+    })
+    .then(text => {
+      // CSV 파싱 실행
+      const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+      rawCsvData = parsed.data;
+      initDashboard();
+    })
+    .catch(err => {
+      alert("brpdata.csv 파일을 찾을 수 없거나 형식 오류입니다. GitHub 저장소 최상단 경로에 파일을 업로드해주세요.");
+    });
+});
+
+function initDashboard() {
+  renderMap();
+  calculateGlobalStats();
+  renderGlobalAccordion();
 }
 
-// ═══════════════════════════════════
-//  DATA HELPERS
-// ═══════════════════════════════════
-function getRows(dataset, regionName, isLayerA) {
-  const layerStr = isLayerA ? 'A' : 'B';
-  const field    = isLayerA ? '시도' : '시군구';
-  return dataset.filter(d => {
-    if (d.Layer !== layerStr) return false;
-    // CSV에 구 단위로 입력됐어도 시 단위로 정규화하여 비교
-    if (normalizeRegion(d[field]) !== regionName) return false;
-    if (state.year !== null && d.계약연도 !== state.year) return false;
+// 필터 상태 변경 토글 함수
+function toggleFilter(category, value) {
+  if (category === 'year') {
+    // 연도는 토글 시 단일 선택 활성화 유지 (안 누르면 전체 구조 적용을 위해 값 변경 가능하게 만듦)
+    currentFilters.year = currentFilters.year === value ? null : value;
+    document.getElementById('btn-yr-2025').classList.toggle('active', currentFilters.year === '2025');
+    document.getElementById('btn-yr-2026').classList.toggle('active', currentFilters.year === '2026');
+  } else if (category === 'dept') {
+    currentFilters.dept = currentFilters.dept === value ? null : value;
+    ['지방세', '세외수입', '기타'].forEach(d => {
+      document.getElementById(`btn-dept-${d}`).classList.toggle('active', currentFilters.dept === d);
+    });
+  } else if (category === 'type') {
+    currentFilters.type = currentFilters.type === value ? null : value;
+    ['신용정보', '전자압류', 'EGS'].forEach(t => {
+      document.getElementById(`btn-type-${t}`).classList.toggle('active', currentFilters.type === t);
+    });
+  }
+  
+  renderMap();
+  calculateGlobalStats();
+}
+
+function setTargetLayer(scope) {
+  activeLayerScope = scope;
+  document.getElementById('btn-layer-A').classList.toggle('active', scope === 'A');
+  document.getElementById('btn-layer-B').classList.toggle('active', scope === 'B');
+  renderMap();
+}
+
+function toggleLabelVisibility() {
+  showLabels = !showLabels;
+  document.getElementById('btn-label-toggle').classList.toggle('active', showLabels);
+  if (showLabels) { map.addLayer(labelGroup); } else { map.removeLayer(labelGroup); }
+}
+
+// 숫자 정제 유틸리티
+function cleanNum(val) {
+  if(!val) return 0;
+  let s = String(val).replace(/[^0-9.-]/g, '');
+  return parseFloat(s) || 0;
+}
+
+// 데이터 매칭 판별 주요 로직
+function processCsvRow(row) {
+  let matchedSido = SIDO_NAME_MAP[row['시도']] || row['시도'];
+  let rawSigungu = row['시군구'] || '';
+  let matchedSigungu = DISTRICT_MAP[rawSigungu] || rawSigungu;
+  
+  return {
+    layer: row['Layer'],
+    year: row['계약연도'],
+    sido: matchedSido,
+    sigungu: matchedSigungu,
+    isTypeContract: parseInt(row['계약유형_계약여부']) === 1,
+    isDeptContract: parseInt(row['부서_계약여부']) === 1,
+    anyContract: parseInt(row['계약유형_계약여부']) === 1 || parseInt(row['부서_계약여부']) === 1,
+    // 세부 플래그
+    지방세: parseInt(row['지방세']) === 1,
+    세외수입: parseInt(row['세외수입']) === 1,
+    기타: parseInt(row['기타']) === 1,
+    신용정보: parseInt(row['신용정보']) === 1,
+    전자압류: parseInt(row['전자압류']) === 1,
+    EGS: parseInt(row['EGS']) === 1,
+    // 금액 항목
+    amt_지방세: cleanNum(row['지방세']), 
+    amt_세외수입: cleanNum(row['세외수입']),
+    amt_기타: cleanNum(row['기타']),
+    amt_신용정보: cleanNum(row['신용정보(\)']),
+    amt_전자압류: cleanNum(row['전자압류(\)']),
+    amt_EGS: cleanNum(row['EGS (\)']),
+    amt_total: cleanNum(row['합계'])
+  };
+}
+
+// 조건별 필터링 함수
+function getFilteredData() {
+  return rawCsvData.map(processCsvRow).filter(item => {
+    if (currentFilters.year && item.year !== currentFilters.year) return false;
+    
+    // 부서 버튼 눌린 상태 체크
+    if (currentFilters.dept && !item[currentFilters.dept]) return false;
+    // 유형 버튼 눌린 상태 체크
+    if (currentFilters.type && !item[currentFilters.type]) return false;
+    
     return true;
   });
 }
 
-function isActive(regionName, isLayerA) {
-  const { contractType, taxType } = state;
-  if (contractType) return getRows(data1, regionName, isLayerA).some(r => r[contractType] === 1);
-  if (taxType)      return getRows(data2, regionName, isLayerA).some(r => r[taxType] === 1);
-  return getRows(data1, regionName, isLayerA).some(r => r.계약여부 === 1)
-      || getRows(data2, regionName, isLayerA).some(r => r.계약여부 === 1);
-}
+// 지도 채색 로직 판별 함수
+function checkCoverage(sidoName, sigunguName = null) {
+  const filtered = getFilteredData();
+  
+  // 아무 필터도 켜지지 않은 디폴트 상태일 때 계약 여부 베이스 출력
+  const isDefaultFilter = !currentFilters.dept && !currentFilters.type;
 
-// ═══════════════════════════════════
-//  GEO LAYER
-// ═══════════════════════════════════
-let geoLayer = null;
-let labelLayer = null;
-let selectedFeatureLayer = null;
-
-function getStyle(name, isLayerA) {
-  const on = isActive(name, isLayerA);
-  return {
-    fillColor:   on ? C.active : C.none,
-    fillOpacity: on ? 0.75 : 0.55,
-    color:       on ? C.borderActive : C.border,
-    weight: 1.2,
-  };
-}
-
-function renderMap() {
-  if (geoLayer) { map.removeLayer(geoLayer); geoLayer = null; }
-  clearLabels();
-  selectedFeatureLayer = null;
-
-  const isLayerA = state.layer === 'A';
-  const geojson  = isLayerA ? SIDO_GEOJSON : SIGUNGU_GEOJSON;
-
-  geoLayer = L.geoJSON(geojson, {
-    style: f => getStyle(f.properties.name, isLayerA),
-    onEachFeature: (feature, layer) => {
-      const name = feature.properties.name;
-      const sido = feature.properties.sido || name;
-
-      layer.on('mouseover', () => {
-        if (layer !== selectedFeatureLayer) {
-          const on = isActive(name, isLayerA);
-          layer.setStyle({
-            fillColor:   on ? C.activeHover : C.noneHover,
-            fillOpacity: 0.85,
-            color:       '#003087', weight: 2,
-          });
-        }
-        setStatus(`${isLayerA ? '' : sido + ' · '}${name} — 클릭하면 상세 정보를 볼 수 있습니다`);
-      });
-      layer.on('mouseout', () => {
-        if (layer !== selectedFeatureLayer) geoLayer.resetStyle(layer);
-        setStatus('지역을 클릭하면 상세 정보가 표시됩니다.');
-      });
-      layer.on('click', () => {
-        if (selectedFeatureLayer) geoLayer.resetStyle(selectedFeatureLayer);
-        selectedFeatureLayer = layer;
-        layer.setStyle({ fillColor: C.activeLight, fillOpacity: 0.9, color: '#003087', weight: 2.5 });
-        openPanel(name, sido, isLayerA);
-      });
-    }
-  }).addTo(map);
-
-  if (state.showLabels) renderLabels(isLayerA);
-}
-
-// ═══════════════════════════════════
-//  LABELS
-// ═══════════════════════════════════
-function clearLabels() {
-  if (labelLayer) { map.removeLayer(labelLayer); labelLayer = null; }
-}
-
-function renderLabels(isLayerA) {
-  clearLabels();
-  labelLayer = L.layerGroup();
-  const centroids = isLayerA ? SIDO_CENTROIDS : SIGUNGU_CENTROIDS;
-  const cls = isLayerA ? 'sido' : 'sigungu';
-
-  Object.entries(centroids).forEach(([name, latlng]) => {
-    const marker = L.marker(latlng, {
-      icon: L.divIcon({
-        className: 'region-label',
-        html: `<div class="region-label-text ${cls}">${name}</div>`,
-        iconSize: null,
-        iconAnchor: null,
-      }),
-      interactive: false,
-      keyboard: false,
-    });
-    labelLayer.addLayer(marker);
-  });
-  labelLayer.addTo(map);
-}
-
-function toggleLabels() {
-  state.showLabels = !state.showLabels;
-  const btn = document.getElementById('btn-labels');
-  if (state.showLabels) {
-    btn.classList.add('active');
-    btn.textContent = '지역명 표시';
-    renderLabels(state.layer === 'A');
+  if (activeLayerScope === 'A') {
+    // 요구사항 3번 반영: A 레이어 버튼이 활성화되어 있을 때, 해당 시도 내 하위 B(시군구) 계약 중 단 하나라도 체결되었거나 자체 A 계약이 있는 경우 트루 리턴
+    return filtered.some(d => d.sido === sidoName && (isDefaultFilter ? d.anyContract : true));
   } else {
-    btn.classList.remove('active');
-    btn.textContent = '지역명 숨김';
-    clearLabels();
+    // B 레이어 판별
+    if (!sigunguName) return false;
+    let normSigungu = DISTRICT_MAP[sigunguName] || sigunguName;
+    return filtered.some(d => d.sido === sidoName && d.sigungu === normSigungu && (isDefaultFilter ? d.anyContract : true));
   }
 }
 
-// ═══════════════════════════════════
-//  SIDE PANEL
-// ═══════════════════════════════════
-function openPanel(name, sido, isLayerA) {
-  const rows1 = getRows(data1, name, isLayerA);
-  const rows2 = getRows(data2, name, isLayerA);
-  const hasContract = rows1.some(r => r.계약여부 === 1) || rows2.some(r => r.계약여부 === 1);
-  const noData = rows1.length === 0 && rows2.length === 0;
-
-  const ct = { 신용정보:0, 전자압류:0, EGS:0 };
-  rows1.forEach(r => { ct.신용정보+=r.신용정보||0; ct.전자압류+=r.전자압류||0; ct.EGS+=r.EGS||0; });
-  const tt = { 지방세:0, 세외수입:0, 기타:0 };
-  rows2.forEach(r => { tt.지방세+=r.지방세||0; tt.세외수입+=r.세외수입||0; tt.기타+=r.기타||0; });
-
-  const total = ct.신용정보+ct.전자압류+ct.EGS+tt.지방세+tt.세외수입+tt.기타;
-  const yearLabel = state.year ? `${state.year}년` : '전체 연도';
-
-  document.getElementById('panelInner').innerHTML = `
-    <div class="panel-header">
-      <div>
-        <div class="panel-region">${name}</div>
-        <div class="panel-sub">${isLayerA ? '시·도 단위' : sido} · ${yearLabel}</div>
-      </div>
-      <button class="panel-close" onclick="closePanel()">✕</button>
-    </div>
-
-    <div class="panel-kpi">
-      ${noData
-        ? `<div class="panel-kpi-num" style="font-size:14px;color:#adb8d0">데이터 없음</div>
-           <div class="panel-kpi-label">CSV를 먼저 업로드해주세요</div>`
-        : `<div class="panel-kpi-num">${hasContract ? total + '건' : '—'}</div>
-           <div class="panel-kpi-label">총 계약 건수</div>
-           <span class="panel-kpi-status ${hasContract ? 'status-ok' : 'status-none'}">${hasContract ? '계약 체결' : '미체결'}</span>`
+// 지도 렌더링 파트
+function renderMap() {
+  geojsonGroup.clearLayers();
+  labelGroup.clearLayers();
+  
+  const targetGeoJson = activeLayerScope === 'A' ? SIDO_GEOJSON : SIGUNGU_GEOJSON;
+  
+  L.geoJSON(targetGeoJson, {
+    style: function(feature) {
+      let sido = feature.properties.CTP_KOR_NM || feature.properties.SIDONM;
+      let sigungu = feature.properties.SIG_KOR_NM;
+      
+      let isCovered = checkCoverage(sido, sigungu);
+      return {
+        fillColor: isCovered ? '#003087' : '#d4d9e5',
+        fillOpacity: isCovered ? 0.75 : 0.4,
+        color: '#ffffff',
+        weight: activeLayerScope === 'A' ? 1.8 : 1,
+      };
+    },
+    onEachFeature: function(feature, layer) {
+      let sido = feature.properties.CTP_KOR_NM || feature.properties.SIDONM;
+      let sigungu = feature.properties.SIG_KOR_NM;
+      let displayName = activeLayerScope === 'A' ? sido : sigungu;
+      
+      // 텍스트 라벨 추가
+      if(SIDO_CENTROIDS[displayName]) {
+        let latlng = SIDO_CENTROIDS[displayName];
+        L.marker(latlng, {
+          icon: L.divIcon({ className: 'map-label', html: displayName, iconSize: [100, 20] })
+        }).addTo(labelGroup);
       }
-    </div>
-
-    ${rows1.length > 0 ? `
-    <div class="panel-section">
-      <div class="panel-section-title">계약유형</div>
-      ${[['신용정보','#003087'],['전자압류','#4f6fbf'],['EGS','#0066cc']].map(([k,c]) => `
-        <div class="stat-row">
-          <span class="stat-name"><span class="stat-dot" style="background:${c}"></span>${k}</span>
-          <span class="stat-value ${ct[k]?'val-ok':'val-none'}">${ct[k]?`✓ ${ct[k]}건`:'—'}</span>
-        </div>`).join('')}
-    </div>` : ''}
-
-    ${rows2.length > 0 ? `
-    <div class="panel-section">
-      <div class="panel-section-title">계약분류</div>
-      ${[['지방세','#1a7a4a'],['세외수입','#b07010'],['기타','#8f9ab8']].map(([k,c]) => `
-        <div class="stat-row">
-          <span class="stat-name"><span class="stat-dot" style="background:${c}"></span>${k}</span>
-          <span class="stat-value ${tt[k]?'val-ok':'val-none'}">${tt[k]?`✓ ${tt[k]}건`:'—'}</span>
-        </div>`).join('')}
-    </div>` : ''}
-
-    ${!noData ? `
-    <div class="panel-section">
-      <div class="panel-section-title">연도별 현황</div>
-      ${[2025,2026].map(yr => {
-        const layerStr = isLayerA ? 'A' : 'B';
-        const field    = isLayerA ? '시도' : '시군구';
-        const ok = [...data1,...data2].some(d => d.Layer===layerStr && d[field]===name && d.계약연도===yr && d.계약여부===1);
-        const uploaded = [uploadStatus[yr+'-type1'],uploadStatus[yr+'-type2']].some(s=>s!==null);
-        return `<div class="stat-row">
-          <span class="stat-name">${yr}년</span>
-          <span class="stat-value ${ok?'val-ok':'val-none'}">${!uploaded?'미업로드':ok?'✓ 체결':'—'}</span>
-        </div>`;
-      }).join('')}
-    </div>` : ''}
-  `;
-  document.getElementById('sidePanel').classList.add('open');
-}
-
-function closePanel() {
-  document.getElementById('sidePanel').classList.remove('open');
-  if (selectedFeatureLayer) { geoLayer.resetStyle(selectedFeatureLayer); selectedFeatureLayer = null; }
-}
-
-// ═══════════════════════════════════
-//  CONTROLS
-// ═══════════════════════════════════
-function setLayer(l) {
-  state.layer = l;
-  document.getElementById('btn-layerA').classList.toggle('active', l==='A');
-  document.getElementById('btn-layerB').classList.toggle('active', l==='B');
-  closePanel(); renderMap();
-}
-
-function toggleYear(yr) {
-  state.year = state.year === yr ? null : yr;
-  document.getElementById('btn-2025').className    = 'btn' + (state.year===2025 ? ' active-year' : '');
-  document.getElementById('btn-2026').className    = 'btn' + (state.year===2026 ? ' active-year' : '');
-  document.getElementById('btn-yearAll').className = 'btn' + (state.year===null  ? ' active' : '');
-  renderMap();
-}
-
-function clearYear() {
-  state.year = null;
-  document.getElementById('btn-2025').className    = 'btn';
-  document.getElementById('btn-2026').className    = 'btn';
-  document.getElementById('btn-yearAll').className = 'btn active';
-  renderMap();
-}
-
-function toggleFilter(type, value) {
-  const other     = type==='contractType' ? 'taxType' : 'contractType';
-  const otherKeys = type==='contractType' ? ['지방세','세외수입','기타'] : ['신용정보','전자압류','EGS'];
-  const thisKeys  = type==='contractType' ? ['신용정보','전자압류','EGS'] : ['지방세','세외수입','기타'];
-  state[other] = null;
-  otherKeys.forEach(k => document.getElementById('btn-'+k).classList.remove('active'));
-  state[type] = state[type]===value ? null : value;
-  thisKeys.forEach(k => document.getElementById('btn-'+k).classList.toggle('active', state[type]===k));
-  renderMap();
-}
-
-// ═══════════════════════════════════
-//  CSV LOADER
-// ═══════════════════════════════════
-function loadCSV(event, year, type) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    const lines = e.target.result.trim().split(/\r?\n/);
-    const headers = lines[0].split(',').map(h => h.trim().replace(/^\uFEFF/,''));
-    const rows = lines.slice(1).filter(l=>l.trim()).map(line => {
-      const vals = line.split(',');
-      const obj = {};
-      headers.forEach((h,i) => {
-        const v = (vals[i]||'').trim();
-        obj[h] = (!isNaN(v) && v!=='') ? Number(v) : v;
+      
+      // 인터랙션 이벤트 바인딩
+      layer.on({
+        click: () => { showTargetDetailPanel(sido, sigungu); },
+        mouseover: (e) => { e.target.setStyle({ fillOpacity: 0.9 }); },
+        mouseout: (e) => { e.target.setStyle({ fillOpacity: activeLayerScope === 'A' ? 0.75 : 0.4 }); }
       });
-      return obj;
-    });
-    const yr = Number(year);
-    if (type==='type1') { data1 = data1.filter(d=>d.계약연도!==yr); data1=[...data1,...rows]; }
-    else                { data2 = data2.filter(d=>d.계약연도!==yr); data2=[...data2,...rows]; }
-
-    const key = year+'-'+type;
-    uploadStatus[key] = { filename: file.name, rows: rows.length };
-    updateBadge(year, type, file.name, rows.length);
-    renderMap();
-    setStatus(`✓ ${file.name} 로드 완료 — ${rows.length}행 반영됨`);
-  };
-  reader.readAsText(file, 'UTF-8');
+    }
+  }).addTo(geojsonGroup);
+  
+  if(showLabels) { map.addLayer(labelGroup); }
 }
 
-function updateBadge(year, type, filename, rowCount) {
-  const el = document.getElementById(`badge-${year}-${type}`);
-  const label = type==='type1' ? '계약유형' : '계약분류';
-  el.className = 'ds-badge loaded';
-  el.innerHTML = `<span class="ds-dot"></span>${year} ${label} — ${filename} (${rowCount}행)`;
+// 대시보드 상단 1: 총괄 통계 계산
+function calculateGlobalStats() {
+  const filtered = getFilteredData();
+  
+  let connectedA = new Set();
+  let connectedB = new Set();
+  let sumA = 0, sumB = 0;
+  
+  filtered.forEach(d => {
+    if(d.anyContract || currentFilters.dept || currentFilters.type) {
+      if(d.layer === 'A') {
+        connectedA.add(d.sido);
+        sumA += d.amt_total;
+      } else if(d.layer === 'B') {
+        connectedB.add(`${d.sido}_${d.sigungu}`);
+        sumB += d.amt_total;
+      }
+    }
+  });
+
+  document.getElementById('total-a-count').innerText = `${connectedA.size} / 17 개 시도 체결`;
+  document.getElementById('total-a-amt').innerText = `${sumA.toLocaleString()} 원`;
+  document.getElementById('total-b-count').innerText = `${connectedB.size} / 228 개 지역 체결`;
+  document.getElementById('total-b-amt').innerText = `${sumB.toLocaleString()} 원`;
+  document.getElementById('total-all-amt').innerText = `${(sumA + sumB).toLocaleString()} 원`;
 }
 
-// ═══════════════════════════════════
-//  LEGEND
-// ═══════════════════════════════════
-const legend = L.control({ position: 'bottomleft' });
-legend.onAdd = () => {
-  const div = L.DomUtil.create('div', 'map-legend');
-  div.innerHTML = `
-    <div class="legend-title">계약 현황</div>
-    <div class="legend-row"><span class="legend-swatch" style="background:#003087"></span>계약 체결</div>
-    <div class="legend-row"><span class="legend-swatch" style="background:#d4d9e5;border:1px solid #b8c2d8"></span>미체결 / 데이터 없음</div>
+// 대시보드 중단 2: 클릭 타겟 세부 패널 정보 표현
+function showTargetDetailPanel(sido, sigungu) {
+  document.getElementById('detail-fallback').style.display = 'none';
+  const contentEl = document.getElementById('detail-content');
+  contentEl.style.display = 'block';
+  
+  const filtered = getFilteredData();
+  
+  // Layer A 항목 조회
+  let itemA = filtered.find(d => d.layer === 'A' && d.sido === sido);
+  let statusALabel = (itemA && itemA.anyContract) ? '계약체결' : '미체결';
+  let statusAClass = (itemA && itemA.anyContract) ? 'active-contract' : 'no-contract';
+  let amtA = itemA ? itemA.amt_total : 0;
+  
+  // 소속 Layer B 그룹 분석 데이터 추출
+  let subBItems = filtered.filter(d => d.layer === 'B' && d.sido === sido);
+  let activeBCount = subBItems.filter(b => b.anyContract).length;
+  let totalBAmt = subBItems.reduce((acc, curr) => acc + curr.amt_total, 0);
+
+  let listHtml = '';
+  subBItems.forEach(b => {
+    listHtml += `
+      <div style="margin-top:8px; padding-bottom:6px; border-bottom:1px dashed #edf2f7; display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-weight:600;">• ${b.sigungu}</span>
+        <div style="display:flex; gap:3px;">
+          <span class="badge-light ${b.신용정보?'on':''}">신용</span>
+          <span class="badge-light ${b.전자압류?'on':''}">압류</span>
+          <span class="badge-light ${b.EGS?'on':''}">ESG</span>
+        </div>
+      </div>
+    `;
+  });
+
+  contentEl.innerHTML = `
+    <div style="background:#f0f4fa; padding:12px; border-radius:6px; margin-bottom:12px;">
+      <h3 style="font-size:16px; margin-bottom:8px; color:#003087;">${sido} 광역현황</h3>
+      <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span style="font-size:13px; color:#475569;">기관 계약 여부</span>
+        <span class="badge-light ${statusAClass}">${statusALabel}</span>
+      </div>
+      <div style="display:flex; justify-content:space-between;">
+        <span style="font-size:13px; color:#475569;">A레이어 체결 금액</span>
+        <span style="font-weight:700; color:#0f172a;">${amtA.toLocaleString()}원</span>
+      </div>
+    </div>
+    
+    <div style="border-top:1px solid #e2e8f0; padding-top:12px;">
+      <h4 style="font-size:14px; margin-bottom:6px; color:#334155;">하위 Layer B 연동 현황</h4>
+      <p style="font-size:12px; color:#64748b; margin-bottom:8px;">
+        소속 지자체 <strong>${subBItems.length}개 중 ${activeBCount}개 지역 체결</strong> / 총액: <span style="color:#003087; font-weight:700;">${totalBAmt.toLocaleString()}원</span>
+      </p>
+      <div style="max-height:200px; overflow-y:auto; padding-right:4px;">
+        ${listHtml || '<p style="color:#94a3b8; font-size:12px;">하위 지자체 데이터가 존재하지 않습니다.</p>'}
+      </div>
+    </div>
   `;
-  return div;
-};
-legend.addTo(map);
+}
 
-function setStatus(msg) { document.getElementById('status-text').textContent = msg; }
+// 대시보드 하단 3: 17개 시도별 세부 정보 종합 아코디언 드롭다운 컴포넌트 생성
+function renderGlobalAccordion() {
+  const container = document.getElementById('sido-accordion-container');
+  container.innerHTML = '';
+  
+  const filtered = getFilteredData();
+  const uniqueSidos = Object.values(SIDO_NAME_MAP);
 
-// ═══════════════════════════════════
-//  BOOT
-// ═══════════════════════════════════
-window.addEventListener('load', () => {
-  renderMap();
-  document.getElementById('loading').style.display = 'none';
-  setStatus('CSV를 업로드하면 지도에 계약 현황이 표시됩니다.');
-});
+  uniqueSidos.forEach(sidoName => {
+    // 특정 시도에 해당하는 모든 데이터 추출 (A + 하위 B)
+    let sidosData = filtered.filter(d => d.sido === sidoName);
+    
+    let sum_지방세 = sidosData.reduce((a,c) => a + c.amt_지방세, 0);
+    let sum_세외수입 = sidosData.reduce((a,c) => a + c.amt_세외수입, 0);
+    let sum_기타부서 = sidosData.reduce((a,c) => a + c.amt_기타, 0);
+    let total_부서 = sum_지방세 + sum_세외수입 + sum_기타부서;
+
+    let sum_신용 = sidosData.reduce((a,c) => a + c.amt_신용정보, 0);
+    let sum_압류 = sidosData.reduce((a,c) => a + c.amt_전자압류, 0);
+    let sum_ESG = sidosData.reduce((a,c) => a + c.amt_EGS, 0);
+    let total_유형 = sum_신용 + sum_압류 + sum_ESG;
+
+    const accordionItem = document.createElement('div');
+    accordionItem.className = 'accordion-item';
+    
+    accordionItem.innerHTML = `
+      <div class="accordion-header" onclick="toggleAccordionElement(this)">
+        <span>${sidoName}</span>
+        <span style="color:#003087;">${(total_부서 + total_유형).toLocaleString()}원 ▼</span>
+      </div>
+      <div class="accordion-content">
+        <table>
+          <thead>
+            <tr><th>구분</th><th>부서별 집계</th><th>유형별 집계</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>지방세 / 신용</td><td>${sum_지방세.toLocaleString()}원</td><td>${sum_신용.toLocaleString()}원</td></tr>
+            <tr><td>세외수입 / 압류</td><td>${sum_세외수입.toLocaleString()}원</td><td>${sum_압류.toLocaleString()}원</td></tr>
+            <tr><td>기타 / ESG</td><td>${sum_기타부서.toLocaleString()}원</td><td>${sum_ESG.toLocaleString()}원</td></tr>
+            <tr style="background:#f8fafc; font-weight:700;">
+              <td>소계 (총합)</td>
+              <td style="color:#003087;">${total_부서.toLocaleString()}원</td>
+              <td style="color:#003087;">${total_유형.toLocaleString()}원</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+    container.appendChild(accordionItem);
+  });
+}
+
+function toggleAccordionElement(headerEl) {
+  const contentEl = headerEl.nextElementSibling;
+  const isVisible = contentEl.style.display === 'block';
+  contentEl.style.display = isVisible ? 'none' : 'block';
+  headerEl.querySelector('span:last-child').innerText = isVisible ? '▼' : '▲';
+}
 </script>
 </body>
 </html>
