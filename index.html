@@ -33,7 +33,7 @@
   .stat-card .val { font-size: 14px; font-weight: 700; color: #0f172a; }
   .stat-card .amt { font-size: 13px; color: #003087; font-weight: 600; }
   .accordion-item { border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 6px; overflow: hidden; }
-  .accordion-header { background: #f8fafc; padding: 10px 14px; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; cursor: pointer; user-select: none; transition: background 0.15s; }
+  .accordion-header { background: #f8fafc; padding: 10px 14px; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; cursor: pointer; user-select: none; }
   .accordion-header:hover { background: #f1f5f9; }
   .accordion-content { padding: 12px; font-size: 12px; display: none; background: #fff; border-top: 1px solid #edf2f7; }
   .accordion-content table { width: 100%; border-collapse: collapse; margin-top: 4px; }
@@ -151,7 +151,7 @@ labelGroup = L.layerGroup().addTo(map);
 window.addEventListener('DOMContentLoaded', () => {
   fetch('./bprdata.csv')
     .then(res => {
-      if(!res.ok) throw new Error("bprdata.csv를 로드하지 못했습니다.");
+      if(!res.ok) throw new Error("bprdata.csv 로드 실패");
       return res.text();
     })
     .then(text => {
@@ -192,7 +192,7 @@ function toggleFilter(category, value) {
   }
   renderMap();
   calculateGlobalStats();
-  renderGlobalAccordion(); // 필터 변경 시 하단 리스트 금액 동시 갱신
+  renderGlobalAccordion();
 }
 
 function setTargetLayer(scope) {
@@ -259,16 +259,17 @@ function checkCoverage(sidoName, sigunguName = null) {
   const filtered = getFilteredData();
   const isDefaultFilter = !currentFilters.dept && !currentFilters.type;
 
+  let normSido = SIDO_NAME_MAP[sidoName] || sidoName;
+
   if (activeLayerScope === 'A') {
-    return filtered.some(d => d.sido === sidoName && (isDefaultFilter ? d.anyContract : true));
+    return filtered.some(d => d.sido === normSido && (isDefaultFilter ? d.anyContract : true));
   } else {
     if (!sigunguName) return false;
     let normSigungu = DISTRICT_MAP[sigunguName] || sigunguName;
-    return filtered.some(d => d.sido === sidoName && d.sigungu === normSigungu && (isDefaultFilter ? d.anyContract : true));
+    return filtered.some(d => d.sido === normSido && d.sigungu === normSigungu && (isDefaultFilter ? d.anyContract : true));
   }
 }
 
-// ★ GeoJSON 데이터의 다양한 속성 구조(Key)를 완벽 유연 대응 교정 완료
 function renderMap() {
   geojsonGroup.clearLayers();
   labelGroup.clearLayers();
@@ -277,7 +278,6 @@ function renderMap() {
   
   L.geoJSON(targetGeoJson, {
     style: function(feature) {
-      // 툴별 다양한 행정구역 키 명칭 사전 정의 바인딩 보완
       let props = feature.properties || {};
       let sido = props.CTP_KOR_NM || props.SIDONM || props.sido_name || props.name;
       let sigungu = props.SIG_KOR_NM || props.SIGUNGU_NM || props.sigungu_name;
@@ -306,7 +306,6 @@ function renderMap() {
         displayName = DISTRICT_MAP[displayName];
       }
 
-      // centroids.js 완벽 연동 매칭
       let targetCentroid = null;
       if (SIDO_CENTROIDS[displayName]) {
         targetCentroid = SIDO_CENTROIDS[displayName];
@@ -425,7 +424,6 @@ function showTargetDetailPanel(sido, sigungu) {
   `;
 }
 
-// ★ 토글 증발 버그 해결 및 부서별 집계 요구사항 완벽 충족 표 컴포넌트
 function renderGlobalAccordion() {
   const container = document.getElementById('sido-accordion-container');
   container.innerHTML = '';
@@ -444,10 +442,11 @@ function renderGlobalAccordion() {
     const accordionItem = document.createElement('div');
     accordionItem.className = 'accordion-item';
     
+    // 토글 열림 상태 추적을 위한 고유 컴포넌트 마크업 구조
     accordionItem.innerHTML = `
       <div class="accordion-header" onclick="toggleAccordionElement(this)">
-        <span style="pointer-events:none;">${sidoName}</span>
-        <span style="color:#003087; pointer-events:none;" class="amt-indicator">${total_부서.toLocaleString()}원 ▼</span>
+        <span>${sidoName}</span>
+        <span style="color:#003087;" class="amt-indicator" data-amt="${total_부서}">${total_부서.toLocaleString()}원 ▼</span>
       </div>
       <div class="accordion-content">
         <table>
@@ -476,13 +475,13 @@ function renderGlobalAccordion() {
 function toggleAccordionElement(headerEl) {
   const contentEl = headerEl.nextElementSibling;
   const indicator = headerEl.querySelector('.amt-indicator');
-  const isVisible = contentEl.style.getPropertyValue('display') === 'block';
+  const isVisible = contentEl.style.display === 'block';
   
-  // 상태 토글 연동 (글자 유실 전면 차단)
-  contentEl.style.setProperty('display', isVisible ? 'none' : 'block');
+  contentEl.style.display = isVisible ? 'none' : 'block';
   
-  let currentAmtText = indicator.innerText.split(' ')[0];
-  indicator.innerText = isVisible ? `${currentAmtText} ▼` : `${currentAmtText} ▲`;
+  // 가공 텍스트 증발 전면 보정법 적용
+  let amtValue = parseInt(indicator.getAttribute('data-amt')) || 0;
+  indicator.innerText = isVisible ? `${amtValue.toLocaleString()}원 ▼` : `${amtValue.toLocaleString()}원 ▲`;
 }
 </script>
 </body>
