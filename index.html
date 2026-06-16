@@ -155,16 +155,12 @@ window.addEventListener('DOMContentLoaded', () => {
       return res.text();
     })
     .then(text => {
-      // Papa.parse 공백 자동 제거 옵션 활성화
       const parsed = Papa.parse(text, { 
         header: true, 
         skipEmptyLines: true,
-        transformHeader: h => h.trim() // 헤더 공백 제거
+        transformHeader: h => h.trim()
       });
       rawCsvData = parsed.data;
-      
-      console.log("📊 [CSV 파싱 데이터 첫 행 샘플]:", rawCsvData[0]);
-      
       initDashboard();
     })
     .catch(err => {
@@ -218,13 +214,11 @@ function cleanNum(val) {
 }
 
 function processCsvRow(row) {
-  // 데이터 안전 정제 처리 (.trim())
   let rawSido = (row['시도'] || '').trim();
   let matchedSido = SIDO_NAME_MAP[rawSido] || rawSido;
   let rawSigungu = (row['시군구'] || '').trim();
   let matchedSigungu = DISTRICT_MAP[rawSigungu] || rawSigungu;
   
-  // 가변 헤더 매칭 안전망 보완
   let v_신용 = row['신용정보(\)'] || row['신용정보'] || 0;
   let v_전자 = row['전자압류(\)'] || row['전자압류'] || 0;
   let v_egs = row['EGS (\)'] || row['EGS'] || 0;
@@ -278,8 +272,6 @@ function renderMap() {
   labelGroup.clearLayers();
   
   const targetGeoJson = activeLayerScope === 'A' ? SIDO_GEOJSON : SIGUNGU_GEOJSON;
-  const filteredCount = getFilteredData().length;
-  console.log("🔍 [현재 필터링된 유효 데이터 행 개수]:", filteredCount);
   
   L.geoJSON(targetGeoJson, {
     style: function(feature) {
@@ -298,20 +290,24 @@ function renderMap() {
       let sigungu = feature.properties.SIG_KOR_NM;
       let displayName = activeLayerScope === 'A' ? sido : sigungu;
       
+      if (!displayName) return; // ★ 빈 데이터 방어 코드 삽입 (undefined 해결)
+
       if (activeLayerScope === 'B' && DISTRICT_MAP[displayName]) {
         displayName = DISTRICT_MAP[displayName];
       }
 
-      // 라벨 자동 노출 매칭 조건 보완
-      if(SIDO_CENTROIDS[displayName]) {
-        let latlng = SIDO_CENTROIDS[displayName];
-        L.marker(latlng, {
-          icon: L.divIcon({ className: 'map-label', html: displayName, iconSize: [120, 20], iconAnchor: [60, 10] })
-        }).addTo(labelGroup);
-      } else if (activeLayerScope === 'A' && displayName.substring(0,2) && SIDO_CENTROIDS[displayName.substring(0,2)]) {
-        // 이름 앞 두 글자 축약 매칭 시도 (예: 서울특별시 -> 서울)
-        let latlng = SIDO_CENTROIDS[displayName.substring(0,2)];
-        L.marker(latlng, {
+      // ★ substring 제거 및 안전한 포함(includes) 연산 기법 도입으로 텍스트 라벨 매칭 복구 완료
+      let targetCentroid = null;
+      if (SIDO_CENTROIDS[displayName]) {
+        targetCentroid = SIDO_CENTROIDS[displayName];
+      } else {
+        // 이름 일부를 기반으로 한 좌표 사전 매칭 역추적 (예: '경기' -> '경기도')
+        const foundKey = Object.keys(SIDO_CENTROIDS).find(k => k.includes(displayName) || displayName.includes(k));
+        if (foundKey) targetCentroid = SIDO_CENTROIDS[foundKey];
+      }
+
+      if(targetCentroid) {
+        L.marker(targetCentroid, {
           icon: L.divIcon({ className: 'map-label', html: displayName, iconSize: [120, 20], iconAnchor: [60, 10] })
         }).addTo(labelGroup);
       }
