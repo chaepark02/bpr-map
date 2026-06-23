@@ -160,7 +160,17 @@ window.addEventListener('DOMContentLoaded', () => {
         skipEmptyLines: true,
         transformHeader: h => h ? h.trim() : ""
       });
+
+      // 🔍 [진단 로그 1] CSV 파일의 실제 열 이름(헤더)들이 어떻게 들어오는지 확인합니다.
+      console.log("★ CSV 실제 열 이름 목록:", parsed.data.length > 0 ? Object.keys(parsed.data[0]) : "데이터 없음");
+      // 🔍 [진단 로그 2] 첫 번째 행의 실제 데이터 샘플을 출력합니다.
+      console.log("★ CSV 첫 줄 데이터 샘플:", parsed.data[0]);
+
       rawCsvData = parsed.data.filter(r => r['시도']).map(processCsvRow);
+
+      // 🔍 [진단 로그 3] '시도' 필터를 거치고 최종 변환된 데이터가 몇 개인지 확인합니다.
+      console.log("★ 최종 변환된 데이터 개수:", rawCsvData.length);
+
       initDashboard();
     })
     .catch(err => {
