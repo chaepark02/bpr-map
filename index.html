@@ -142,6 +142,7 @@ let activeLayerScope = 'A';
 let showLabels = true;
 let rawCsvData = [];
 let map, geojsonGroup, labelGroup;
+let selectedLayer = null; // ★ 현재 클릭해서 선택된 구역을 추적하는 변수
 
 map = L.map('map', { zoomControl: false }).setView([36.2, 127.8], 7.5);
 L.control.zoom({ position: 'topleft' }).addTo(map);
@@ -155,18 +156,14 @@ window.addEventListener('DOMContentLoaded', () => {
       return res.text();
     })
     .then(text => {
-      // 이제 인코딩이 정상적이므로 깔끔하게 원래의 header: true 방식으로 복원합니다.
       const parsed = Papa.parse(text, { 
         header: true, 
         skipEmptyLines: true,
-        // 엑셀에서 UTF-8 저장 시 붙는 첫 칸의 BOM 문자(\ufeff)만 자동으로 지워주는 안전장치입니다.
         transformHeader: h => h ? h.trim().replace(/^\ufeff/, "") : ""
       });
 
-      // '시도' 열 이름 기반으로 깔끔하게 필터링 및 데이터 셋 매핑
       rawCsvData = parsed.data.filter(r => r['시도']).map(processCsvRow);
-      
-      console.log("★ 단순화 완료 - 최종 로드된 데이터 수:", rawCsvData.length);
+      console.log("★ 데이터 로드 완료 - 데이터 수:", rawCsvData.length);
       initDashboard();
     })
     .catch(err => {
@@ -236,7 +233,6 @@ function processCsvRow(row) {
     year: (row['계약연도'] || '').trim(),
     sido: matchedSido,
     sigungu: matchedSigungu,
-    // 마지막 열이 빠져 있더라도 개별 부서 값으로 유연하게 체결 판단
     anyContract: parseInt(row['계약유형_계약여부']) === 1 || parseInt(row['부서_계약여부']) === 1 || parseInt(row['지방세']) === 1 || parseInt(row['세외수입']) === 1 || parseInt(row['기타']) === 1,
     지방세: parseInt(row['지방세']) === 1,
     세외수입: parseInt(row['세외수입']) === 1,
@@ -269,17 +265,20 @@ function checkCoverage(sidoName, sigunguName = null) {
 
   if (activeLayerScope === 'A') {
     let normSido = SIDO_NAME_MAP[sidoName] || sidoName;
-    return filtered.some(d => d.sido === normSido && (isDefaultFilter ? d.anyContract : true));
+    // ★ 금액이 0보다 큰 활성 계약이 존재하는 경우만 체결로 매핑 (미체결 일원화)
+    return filtered.some(d => d.sido === normSido && d.layer === 'A' && (isDefaultFilter ? d.anyContract : true) && d.amt_total > 0);
   } else {
     if (!sigunguName) return false;
     let normSigungu = DISTRICT_MAP[sigunguName] || sigunguName;
-    return filtered.some(d => d.sigungu === normSigungu && (isDefaultFilter ? d.anyContract : true));
+    // ★ 금액이 0보다 큰 활성 계약이 존재하는 경우만 체결로 매핑 (미체결 일원화)
+    return filtered.some(d => d.sigungu === normSigungu && d.layer === 'B' && (isDefaultFilter ? d.anyContract : true) && d.amt_total > 0);
   }
 }
 
 function renderMap() {
   geojsonGroup.clearLayers();
   labelGroup.clearLayers();
+  selectedLayer = null; // 필터 교체 등으로 지도를 다시 그릴 때 기존 선택 상태 완전 초기화
   
   const targetGeoJson = activeLayerScope === 'A' ? SIDO_GEOJSON : SIGUNGU_GEOJSON;
   
@@ -303,10 +302,11 @@ function renderMap() {
       }
       
       return {
-        fillColor: isCovered ? '#003087' : '#d4d9e5',
-        fillOpacity: isCovered ? 0.75 : 0.4,
-        color: '#ffffff',
-        weight: activeLayerScope === 'A' ? 1.8 : 1,
+        // ★ 체결은 파란색, 미체결(0원 또는 누락 지역)은 일체감 있는 연회색(#e2e8f0)으로 통합
+        fillColor: isCovered ? '#003087' : '#e2e8f0',
+        fillOpacity: isCovered ? 0.8 : 0.5,
+        color: '#ffffff', // 기본 지역구분선은 깔끔한 흰색 테두리
+        weight: activeLayerScope === 'A' ? 1.5 : 1,
       };
     },
     onEachFeature: function(feature, layer) {
@@ -326,7 +326,24 @@ function renderMap() {
       }
       
       layer.on({
-        click: () => { 
+        click: (e) => { 
+          // ★ [검은색 테두리 인터랙션 구현] 이전에 선택된 구역이 있다면 원본 스타일로 복원
+          if (selectedLayer) {
+            geoJsonLayer.resetStyle(selectedLayer);
+          }
+          
+          // 현재 클릭한 구역을 선택하고, 색상 변주 없이 명확한 검은색 테두리 부여
+          selectedLayer = e.target;
+          selectedLayer.setStyle({
+            color: '#000000',
+            weight: 3,
+            fillOpacity: selectedLayer.options.fillColor === '#003087' ? 0.95 : 0.7
+          });
+          
+          if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+            selectedLayer.bringToFront();
+          }
+
           let searchSido = matchedSido;
           if (activeLayerScope === 'B') {
             let found = rawCsvData.find(d => d.sigungu === displayName);
@@ -334,8 +351,18 @@ function renderMap() {
           }
           showTargetDetailPanel(searchSido, displayName);
         },
-        mouseover: (e) => { e.target.setStyle({ fillOpacity: 0.9 }); },
-        mouseout: (e) => { e.target.setStyle({ fillOpacity: activeLayerScope === 'A' ? 0.75 : 0.4 }); }
+        mouseover: (e) => { 
+          // 현재 활성화되어 선택된 구역은 마우스 오버 시 투명도 변화 제외 (테두리 보존)
+          if (e.target !== selectedLayer) {
+            e.target.setStyle({ fillOpacity: e.target.options.fillColor === '#003087' ? 0.95 : 0.7 });
+          }
+        },
+        mouseout: (e) => { 
+          // 현재 활성화되어 선택된 구역은 마우스 아웃 시 투명도 변화 제외 (테두리 보존)
+          if (e.target !== selectedLayer) {
+            e.target.setStyle({ fillOpacity: e.target.options.fillColor === '#003087' ? 0.8 : 0.5 });
+          }
+        }
       });
     }
   });
@@ -371,7 +398,7 @@ function calculateGlobalStats() {
   let sumA = 0, sumB = 0;
   
   filtered.forEach(d => {
-    if(d.anyContract || currentFilters.dept || currentFilters.type) {
+    if((d.anyContract || currentFilters.dept || currentFilters.type) && d.amt_total > 0) {
       if(d.layer === 'A') {
         connectedA.add(d.sido);
         sumA += d.amt_total;
@@ -403,10 +430,11 @@ function showTargetDetailPanel(sido, sigungu) {
              : (d.layer === 'B' && d.sido === sido && d.sigungu === sigungu)
   );
   
-  let hasContract = targetItems.some(d => d.anyContract);
+  // 금액이 있고 매칭 카운트가 활성화된 경우에 한해 체결 패널 갱신
+  let targetAmt = targetItems.reduce((acc, curr) => acc + curr.amt_total, 0);
+  let hasContract = targetAmt > 0 && targetItems.some(d => d.anyContract);
   let statusALabel = hasContract ? '계약체결' : '미체결';
   let statusAClass = hasContract ? 'active-contract' : 'no-contract';
-  let targetAmt = targetItems.reduce((acc, curr) => acc + curr.amt_total, 0);
 
   let subBItems = rawCsvData.filter(d => d.layer === 'B' && d.sido === sido);
   
@@ -415,16 +443,16 @@ function showTargetDetailPanel(sido, sigungu) {
     if(!uniqueBMap[b.sigungu]) {
       uniqueBMap[b.sigungu] = {
         sigungu: b.sigungu,
-        anyContract: b.anyContract,
-        신용정보: b.신용정보,
-        전자압류: b.전자압류,
-        EGS: b.EGS
+        anyContract: b.anyContract && b.amt_total > 0,
+        신용정보: b.신용정보 && b.amt_total > 0,
+        전자압류: b.전자압류 && b.amt_total > 0,
+        EGS: b.EGS && b.amt_total > 0
       };
     } else {
-      if(b.anyContract) uniqueBMap[b.sigungu].anyContract = true;
-      if(b.신용정보) uniqueBMap[b.sigungu].신용정보 = true;
-      if(b.전자압류) uniqueBMap[b.sigungu].전자압류 = true;
-      if(b.EGS) uniqueBMap[b.sigungu].EGS = true;
+      if(b.anyContract && b.amt_total > 0) uniqueBMap[b.sigungu].anyContract = true;
+      if(b.신용정보 && b.amt_total > 0) uniqueBMap[b.sigungu].신용정보 = true;
+      if(b.전자압류 && b.amt_total > 0) uniqueBMap[b.sigungu].전자압류 = true;
+      if(b.EGS && b.amt_total > 0) uniqueBMap[b.sigungu].EGS = true;
     }
   });
   
