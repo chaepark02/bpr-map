@@ -142,7 +142,11 @@ let activeLayerScope = 'A';
 let showLabels = true;
 let rawCsvData = [];
 let map, geojsonGroup, labelGroup;
-let selectedLayer = null; // ★ 현재 클릭해서 선택된 구역을 추적하는 변수
+let selectedLayer = null; 
+
+// ★ 연도 변경 시 선택 지역 정보도 새로고침하기 위해 클릭한 상태를 저장하는 전역 변수
+let lastClickedSido = null;
+let lastClickedOriginalName = null;
 
 map = L.map('map', { zoomControl: false }).setView([36.2, 127.8], 7.5);
 L.control.zoom({ position: 'topleft' }).addTo(map);
@@ -193,14 +197,29 @@ function toggleFilter(category, value) {
       document.getElementById(`btn-type-${t}`).classList.toggle('active', currentFilters.type === t);
     });
   }
+  
+  // 연도나 필터가 바뀌면 지도, 메인 통계, 하단 아코디언 일제히 갱신
   renderMap();
   calculateGlobalStats();
+  renderGlobalAccordion(); 
+  
+  // ★ 만약 이전에 클릭해둔 선택 지역 분석 패널이 있다면 새 연도 기준으로 내용 자동 업데이트
+  if (lastClickedSido) {
+    showTargetDetailPanel(lastClickedSido, lastClickedOriginalName);
+  }
 }
 
 function setTargetLayer(scope) {
   activeLayerScope = scope;
   document.getElementById('btn-layer-A').classList.toggle('active', scope === 'A');
   document.getElementById('btn-layer-B').classList.toggle('active', scope === 'B');
+  
+  // 레이어 범위 변환 시 선택 상태 완전 초기화
+  lastClickedSido = null;
+  lastClickedOriginalName = null;
+  document.getElementById('detail-fallback').style.display = 'block';
+  document.getElementById('detail-content').style.display = 'none';
+  
   renderMap();
 }
 
@@ -265,12 +284,10 @@ function checkCoverage(sidoName, sigunguName = null) {
 
   if (activeLayerScope === 'A') {
     let normSido = SIDO_NAME_MAP[sidoName] || sidoName;
-    // ★ 금액이 0보다 큰 활성 계약이 존재하는 경우만 체결로 매핑 (미체결 일원화)
     return filtered.some(d => d.sido === normSido && d.layer === 'A' && (isDefaultFilter ? d.anyContract : true) && d.amt_total > 0);
   } else {
     if (!sigunguName) return false;
     let normSigungu = DISTRICT_MAP[sigunguName] || sigunguName;
-    // ★ 금액이 0보다 큰 활성 계약이 존재하는 경우만 체결로 매핑 (미체결 일원화)
     return filtered.some(d => d.sigungu === normSigungu && d.layer === 'B' && (isDefaultFilter ? d.anyContract : true) && d.amt_total > 0);
   }
 }
@@ -278,7 +295,7 @@ function checkCoverage(sidoName, sigunguName = null) {
 function renderMap() {
   geojsonGroup.clearLayers();
   labelGroup.clearLayers();
-  selectedLayer = null; // 필터 교체 등으로 지도를 다시 그릴 때 기존 선택 상태 완전 초기화
+  selectedLayer = null; 
   
   const targetGeoJson = activeLayerScope === 'A' ? SIDO_GEOJSON : SIGUNGU_GEOJSON;
   
@@ -302,10 +319,9 @@ function renderMap() {
       }
       
       return {
-        // ★ 체결은 파란색, 미체결(0원 또는 누락 지역)은 일체감 있는 연회색(#e2e8f0)으로 통합
         fillColor: isCovered ? '#003087' : '#e2e8f0',
         fillOpacity: isCovered ? 0.8 : 0.5,
-        color: '#ffffff', // 기본 지역구분선은 깔끔한 흰색 테두리
+        color: '#ffffff', 
         weight: activeLayerScope === 'A' ? 1.5 : 1,
       };
     },
@@ -327,12 +343,10 @@ function renderMap() {
       
       layer.on({
         click: (e) => { 
-          // ★ [검은색 테두리 인터랙션 구현] 이전에 선택된 구역이 있다면 원본 스타일로 복원
           if (selectedLayer) {
             geoJsonLayer.resetStyle(selectedLayer);
           }
           
-          // 현재 클릭한 구역을 선택하고, 색상 변주 없이 명확한 검은색 테두리 부여
           selectedLayer = e.target;
           selectedLayer.setStyle({
             color: '#000000',
@@ -349,16 +363,19 @@ function renderMap() {
             let found = rawCsvData.find(d => d.sigungu === displayName);
             searchSido = found ? found.sido : "알수없음";
           }
+          
+          // ★ 클릭 정보를 상태 변수에 백업하여 필터 교체 시 재호출 가능하게 연동
+          lastClickedSido = searchSido;
+          lastClickedOriginalName = displayName;
+          
           showTargetDetailPanel(searchSido, displayName);
         },
         mouseover: (e) => { 
-          // 현재 활성화되어 선택된 구역은 마우스 오버 시 투명도 변화 제외 (테두리 보존)
           if (e.target !== selectedLayer) {
             e.target.setStyle({ fillOpacity: e.target.options.fillColor === '#003087' ? 0.95 : 0.7 });
           }
         },
         mouseout: (e) => { 
-          // 현재 활성화되어 선택된 구역은 마우스 아웃 시 투명도 변화 제외 (테두리 보존)
           if (e.target !== selectedLayer) {
             e.target.setStyle({ fillOpacity: e.target.options.fillColor === '#003087' ? 0.8 : 0.5 });
           }
@@ -416,6 +433,7 @@ function calculateGlobalStats() {
   document.getElementById('total-all-amt').innerText = `${(sumA + sumB).toLocaleString()} 원`;
 }
 
+// ★ 우측 패널 연도별 완벽 동기화 기능 보완 완료
 function showTargetDetailPanel(sido, sigungu) {
   document.getElementById('detail-fallback').style.display = 'none';
   const contentEl = document.getElementById('detail-content');
@@ -425,30 +443,40 @@ function showTargetDetailPanel(sido, sigungu) {
   let titleName = isScopeA ? sido : sigungu;
   let layerLabel = isScopeA ? 'A레이어(광역)' : 'B레이어(기초)';
   
-  let targetItems = rawCsvData.filter(d => 
+  // 1. 원본 데이터가 아닌 현재 필터링된 연도 데이터를 기준으로 타겟 추출
+  const filtered = getFilteredData();
+  
+  let targetItems = filtered.filter(d => 
     isScopeA ? (d.layer === 'A' && d.sido === sido) 
              : (d.layer === 'B' && d.sido === sido && d.sigungu === sigungu)
   );
   
-  // 금액이 있고 매칭 카운트가 활성화된 경우에 한해 체결 패널 갱신
   let targetAmt = targetItems.reduce((acc, curr) => acc + curr.amt_total, 0);
   let hasContract = targetAmt > 0 && targetItems.some(d => d.anyContract);
   let statusALabel = hasContract ? '계약체결' : '미체결';
   let statusAClass = hasContract ? 'active-contract' : 'no-contract';
 
-  let subBItems = rawCsvData.filter(d => d.layer === 'B' && d.sido === sido);
+  // 2. 하단 리스트 연동: 전체 시군구 구조는 원본(rawCsvData)에서 가져와 고정하고, 활성화 상태만 filtered에서 매핑
+  let allBItemsForSido = rawCsvData.filter(d => d.layer === 'B' && d.sido === sido);
+  let filteredBItemsForSido = filtered.filter(d => d.layer === 'B' && d.sido === sido);
   
   let uniqueBMap = {};
-  subBItems.forEach(b => {
+  // 기본 지자체 목록 틀 생성 (총 지자체 분모 개수 유지 목적)
+  allBItemsForSido.forEach(b => {
     if(!uniqueBMap[b.sigungu]) {
       uniqueBMap[b.sigungu] = {
         sigungu: b.sigungu,
-        anyContract: b.anyContract && b.amt_total > 0,
-        신용정보: b.신용정보 && b.amt_total > 0,
-        전자압류: b.전자압류 && b.amt_total > 0,
-        EGS: b.EGS && b.amt_total > 0
+        anyContract: false,
+        신용정보: false,
+        전자압류: false,
+        EGS: false
       };
-    } else {
+    }
+  });
+  
+  // 현재 선택된 필터 연도에 매칭되는 내용만 상태 활성화(on) 처리
+  filteredBItemsForSido.forEach(b => {
+    if(uniqueBMap[b.sigungu]) {
       if(b.anyContract && b.amt_total > 0) uniqueBMap[b.sigungu].anyContract = true;
       if(b.신용정보 && b.amt_total > 0) uniqueBMap[b.sigungu].신용정보 = true;
       if(b.전자압류 && b.amt_total > 0) uniqueBMap[b.sigungu].전자압류 = true;
@@ -501,14 +529,18 @@ function showTargetDetailPanel(sido, sigungu) {
   `;
 }
 
+// ★ 최하단 17개 시도별 종합 아코디언 연도별 필터링 연동 보완 완료
 function renderGlobalAccordion() {
   const container = document.getElementById('sido-accordion-container');
   container.innerHTML = '';
   
   const uniqueSidos = ["서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시", "대전광역시", "울산광역시", "세종특별자치시", "경기도", "강원도", "충청북도", "충청남도", "전라북도", "전라남도", "경상북도", "경상남도", "제주특별자치도"];
 
+  // rawCsvData 대신 현재 설정된 연도 필터가 거쳐진 데이터셋 호출
+  const filtered = getFilteredData();
+
   uniqueSidos.forEach(sidoName => {
-    let sidosData = rawCsvData.filter(d => d.sido === sidoName);
+    let sidosData = filtered.filter(d => d.sido === sidoName);
     
     let total_부서 = sidosData.reduce((a,c) => a + c.amt_total, 0);
     
