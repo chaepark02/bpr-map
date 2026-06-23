@@ -158,18 +158,30 @@ window.addEventListener('DOMContentLoaded', () => {
       const parsed = Papa.parse(text, { 
         header: true, 
         skipEmptyLines: true,
-        transformHeader: h => h ? h.trim() : ""
+        // 엑셀 UTF-8 저장 시 발생하는 숨겨진 특수 문자(\ufeff)를 강제로 제거하는 로직 추가
+        transformHeader: h => h ? h.trim().replace(/^\ufeff/, "") : ""
       });
 
-      // 🔍 [진단 로그 1] CSV 파일의 실제 열 이름(헤더)들이 어떻게 들어오는지 확인합니다.
-      console.log("★ CSV 실제 열 이름 목록:", parsed.data.length > 0 ? Object.keys(parsed.data[0]) : "데이터 없음");
-      // 🔍 [진단 로그 2] 첫 번째 행의 실제 데이터 샘플을 출력합니다.
-      console.log("★ CSV 첫 줄 데이터 샘플:", parsed.data[0]);
+      if (parsed.data.length > 0) {
+        // 🔍 콘솔창에서 화살표를 누르지 않아도 한눈에 볼 수 있게 문자열로 출력합니다.
+        console.log("★ [확인] CSV 실제 열 이름들:", Object.keys(parsed.data[0]).join(" | "));
+        console.log("★ [확인] CSV 첫 줄 데이터 상세:", parsed.data[0]);
+      }
 
-      rawCsvData = parsed.data.filter(r => r['시도']).map(processCsvRow);
+      // '시도'라는 글자가 포함된 열을 동적으로 찾아 데이터를 안전하게 매핑합니다.
+      rawCsvData = parsed.data.filter(r => {
+        const sidoKey = Object.keys(r).find(k => k.includes('시도'));
+        return sidoKey && r[sidoKey];
+      }).map(row => {
+        // 혹시 열 이름이 '시도명' 등으로 되어 있다면 코드가 인식할 수 있게 '시도'로 통일해 줍니다.
+        const sidoKey = Object.keys(row).find(k => k.includes('시도'));
+        if (sidoKey && sidoKey !== '시도') {
+          row['시도'] = row[sidoKey];
+        }
+        return processCsvRow(row);
+      });
 
-      // 🔍 [진단 로그 3] '시도' 필터를 거치고 최종 변환된 데이터가 몇 개인지 확인합니다.
-      console.log("★ 최종 변환된 데이터 개수:", rawCsvData.length);
+      console.log("★ [확인] 필터링 후 최종 변환된 데이터 개수:", rawCsvData.length);
 
       initDashboard();
     })
