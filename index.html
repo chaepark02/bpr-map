@@ -284,7 +284,9 @@ function checkCoverage(sidoName, sigunguName = null) {
 
   if (activeLayerScope === 'A') {
     let normSido = SIDO_NAME_MAP[sidoName] || sidoName;
-    return filtered.some(d => d.sido === normSido && d.layer === 'A' && (isDefaultFilter ? d.anyContract : true) && d.amt_total > 0);
+    // ★ Layer A 자체가 미체결/데이터 없음이어도, 소속 Layer B(시군구)들 중
+    //   하나라도 금액이 있는 체결 건이 있으면 해당 시도를 체결로 간주(색칠)한다.
+    return filtered.some(d => d.sido === normSido && (d.layer === 'A' || d.layer === 'B') && (isDefaultFilter ? d.anyContract : true) && d.amt_total > 0);
   } else {
     if (!sigunguName) return false;
     let normSigungu = DISTRICT_MAP[sigunguName] || sigunguName;
@@ -445,14 +447,22 @@ function showTargetDetailPanel(sido, sigungu) {
   
   // 1. 원본 데이터가 아닌 현재 필터링된 연도 데이터를 기준으로 타겟 추출
   const filtered = getFilteredData();
+  const isDefaultFilter = !currentFilters.dept && !currentFilters.type;
   
   let targetItems = filtered.filter(d => 
     isScopeA ? (d.layer === 'A' && d.sido === sido) 
              : (d.layer === 'B' && d.sido === sido && d.sigungu === sigungu)
   );
   
-  let targetAmt = targetItems.reduce((acc, curr) => acc + curr.amt_total, 0);
-  let hasContract = targetAmt > 0 && targetItems.some(d => d.anyContract);
+  // ★ A(시도) 선택 시: Layer A 자체가 미체결/데이터 없음이어도, 소속 Layer B(시군구)들의
+  //   금액을 모두 합산해서 보여준다. 부서(지방세/세외수입/기타) 필터와 무관하게 동작.
+  let bChildItems = isScopeA ? filtered.filter(d => d.layer === 'B' && d.sido === sido) : [];
+  let combinedItems = isScopeA ? targetItems.concat(bChildItems) : targetItems;
+  
+  let targetAmt = combinedItems.reduce((acc, curr) => acc + curr.amt_total, 0);
+  let hasContract = combinedItems.some(d => 
+    (isDefaultFilter ? d.anyContract : true) && d.amt_total > 0
+  );
   let statusALabel = hasContract ? '계약체결' : '미체결';
   let statusAClass = hasContract ? 'active-contract' : 'no-contract';
 
@@ -512,9 +522,10 @@ function showTargetDetailPanel(sido, sigungu) {
         <span class="badge-light ${statusAClass}">${statusALabel}</span>
       </div>
       <div style="display:flex; justify-content:space-between;">
-        <span style="font-size:13px; color:#475569;">해당 지역 체결 금액</span>
+        <span style="font-size:13px; color:#475569;">${isScopeA ? '해당 지역 체결 금액 (A+B 합산)' : '해당 지역 체결 금액'}</span>
         <span style="font-weight:700; color:#0f172a;">${targetAmt.toLocaleString()}원</span>
       </div>
+      ${isScopeA ? `<div style="font-size:11px; color:#94a3b8; margin-top:2px; text-align:right;">광역(A) ${targetItems.reduce((a,c)=>a+c.amt_total,0).toLocaleString()}원 + 시군구(B) ${bChildItems.reduce((a,c)=>a+c.amt_total,0).toLocaleString()}원</div>` : ''}
     </div>
     
     <div style="border-top:1px solid #e2e8f0; padding-top:12px;">
@@ -593,4 +604,3 @@ function toggleAccordionElement(headerEl) {
 </script>
 </body>
 </html>
- 
