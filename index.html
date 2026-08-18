@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BPR 계약 현황 대시보드</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="sido.js"></script>
+<script src="sigungu.js"></script>
+<script src="centroids.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; background: #f4f6fb; color: #1a2340; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  .container { display: flex; flex: 1; height: calc(100vh - 60px); overflow: hidden; }
+  .header { background: #fff; border-bottom: 1px solid #e2e6f0; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; height: 60px; box-shadow: 0 1px 4px rgba(0,48,135,0.06); }
+  .header h1 { font-size: 18px; color: #003087; font-weight: 700; }
+  .filter-group { display: flex; gap: 8px; align-items: center; }
+  .filter-label { font-size: 12px; font-weight: 600; color: #64748b; margin-right: 4px; }
+  .btn-choice { background: #fff; border: 1px solid #cbd5e1; padding: 6px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; transition: all 0.2s; font-weight: 500; }
+  .btn-choice:hover { background: #f8fafc; }
+  .btn-choice.active { background: #003087; color: #fff; border-color: #003087; font-weight: 600; }
+  #map { flex: 1; height: 100%; background: #edf2f7; }
+  .sidebar { width: 420px; background: #fff; border-left: 1px solid #e2e6f0; display: flex; flex-direction: column; overflow-y: auto; box-shadow: -2px 0 8px rgba(0,0,0,0.02); }
+  .panel-section { padding: 20px; border-bottom: 1px solid #edf2f7; }
+  .panel-title { font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+  .panel-title::before { content: ''; display: inline-block; width: 4px; height: 14px; background: #003087; border-radius: 2px; }
+  .stat-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
+  .stat-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
+  .stat-card .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .stat-card .label { font-size: 13px; color: #475569; font-weight: 500; }
+  .stat-card .val { font-size: 14px; font-weight: 700; color: #0f172a; }
+  .stat-card .amt { font-size: 13px; color: #003087; font-weight: 600; }
+  .accordion-item { border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 6px; overflow: hidden; }
+  .accordion-header { background: #f8fafc; padding: 10px 14px; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; cursor: pointer; user-select: none; transition: background 0.15s; }
+  .accordion-header:hover { background: #f1f5f9; }
+  .accordion-content { padding: 12px; font-size: 12px; display: none; background: #fff; border-top: 1px solid #edf2f7; }
+  .accordion-content table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  .accordion-content th, .accordion-content td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #f1f5f9; }
+  .accordion-content th { color: #64748b; font-weight: 600; background: #f8fafc; }
+  .badge-light { inline-size: max-content; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #eef1f6; color: #94a3b8; }
+  .badge-light.on { background: #1d4ed8; color: #ffffff; }
+  .badge-light.active-contract { background: #dcfce7; color: #15803d; }
+  .badge-light.no-contract { background: #fee2e2; color: #b91c1c; }
+  .map-label { background: transparent; border: none; box-shadow: none; font-size: 11px; font-weight: 700; color: #1e293b; text-shadow: -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff, 2px 2px 0 #fff; text-align: center; white-space: nowrap; pointer-events: none; }
+  .tri-up { display:inline-block; width:0; height:0; border-left:4px solid transparent; border-right:4px solid transparent; border-bottom:6px solid #c0392b; margin-right:4px; vertical-align:1px; }
+  .tri-down { display:inline-block; width:0; height:0; border-left:4px solid transparent; border-right:4px solid transparent; border-top:6px solid #2563eb; margin-right:4px; vertical-align:-1px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>BPR 전국 계약 현황 분석 시스템</h1>
+  <div style="display: flex; gap: 16px;">
+    <div class="filter-group">
+      <span class="filter-label">연도</span>
+      <button class="btn-choice" id="btn-yr-2025" onclick="toggleFilter('year', '2025')">2025</button>
+      <button class="btn-choice active" id="btn-yr-2026" onclick="toggleFilter('year', '2026')">2026</button>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">범위</span>
+      <button class="btn-choice active" id="btn-layer-A" onclick="setTargetLayer('A')">시도</button>
+      <button class="btn-choice" id="btn-layer-B" onclick="setTargetLayer('B')">시군구</button>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">부서</span>
+      <button class="btn-choice" id="btn-dept-지방세" onclick="toggleFilter('dept', '지방세')">지방세</button>
+      <button class="btn-choice" id="btn-dept-세외수입" onclick="toggleFilter('dept', '세외수입')">세외수입</button>
+      <button class="btn-choice" id="btn-dept-기타" onclick="toggleFilter('dept', '기타')">기타</button>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">유형</span>
+      <button class="btn-choice" id="btn-type-신용정보" onclick="toggleFilter('type', '신용정보')">신용정보</button>
+      <button class="btn-choice" id="btn-type-전자압류" onclick="toggleFilter('type', '전자압류')">전자압류</button>
+      <button class="btn-choice" id="btn-type-EGS" onclick="toggleFilter('type', 'EGS')">EGS</button>
+    </div>
+    <div class="filter-group">
+      <button class="btn-choice active" id="btn-label-toggle" onclick="toggleLabelVisibility()">지역명 표시</button>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div id="map"></div>
+  <div class="sidebar">
+    <div class="panel-section" style="background: #f8fafc;">
+      <div class="panel-title">전국 계약현황 총괄 <span style="font-size:11px; font-weight:500; color:#94a3b8;">연도, 부서, 유형 버튼을 눌러 확인하세요!</span></div>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="row"><span class="label">Layer A (17개 시도)</span><span class="val" id="total-a-count">0개 체결</span></div>
+          <div class="row"><span></span><span class="amt" id="total-a-amt">0원</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="row"><span class="label">Layer B (230개 시군구)</span><span class="val" id="total-b-count">0개 지역 체결</span></div>
+          <div class="row"><span></span><span class="amt" id="total-b-amt">0원</span></div>
+        </div>
+        <div class="stat-card" style="border-left: 4px solid #003087;">
+          <div class="row"><span class="label" style="font-weight:700; color:#003087;">Total 합산 금액</span><span class="val" id="total-all-amt" style="color:#003087; font-size:16px;">0원</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-section" id="detail-section">
+      <div class="panel-title">선택 지역 세부 계약분석</div>
+      <div id="detail-fallback" style="font-size:13px; color:#64748b; text-align:center; padding:20px 0;">
+        지도 위 행정구역을 클릭하시면 하위 연동 상세 정보가 실시간 집계됩니다.
+      </div>
+      <div id="detail-content" style="display: none;"></div>
+    </div>
+    <div class="panel-section" style="flex: 1;">
+      <div class="panel-title">17개 시도별 A+B 연도별 금액</div>
+      <div id="sido-accordion-container"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const DISTRICT_MAP = {
+  "수원시장안구":"수원시","수원시권선구":"수원시","수원시팔달구":"수원시","수원시영통구":"수원시",
+  "성남시수정구":"성남시","성남시중원구":"성남시","성남시분당구":"성남시",
+  "안양시만안구":"안양시","안양시동안구":"안양시",
+  "고양시덕양구":"고양시","고양시일산동구":"고양시","고양시일산서구":"고양시",
+  "안산시상록구":"안산시","안산시단원구":"안산시",
+  "용인시처인구":"용인시","용인시기흥구":"용인시","용인시수지구":"용인시",
+  "천안시동남구":"천안시","천안시서북구":"천안시",
+  "청주시상당구":"청주시","청주시서원구":"청주시","청주시흥덕구":"청주시","청주시청원구":"청주시",
+  "포항시남구":"포항시","포항시북구":"포항시",
+  "전주시완산구":"전주시","전주시덕진구":"전주시",
+  "창원시의창구":"창원시","창원시성산구":"창원시","창원시마산합포구":"창원시","창원시마산회원구":"창원시","창원어진해구":"창원시"
+};
+
+const SIDO_NAME_MAP = {
+  "서울시":"서울특별시", "부산시":"부산광역시", "대구시":"대구광역시", "인천시":"인천광역시", 
+  "광주시":"광주광역시", "대전시":"대전광역시", "울산시":"울산광역시", "세종시":"세종특별자치시", 
+  "경기도":"경기도", "강원도":"강원도", "충북":"충청북도", "충남":"충청남도", 
+  "전북":"전라북도", "전남":"전라남도", "경북":"경상북도", "경남":"경상남도", "제주도":"제주특별자치도",
+  "서울특별시":"서울특별시", "부산광역시":"부산광역시", "대구광역시":"대구광역시", "인천광역시":"인천광역시",
+  "광주광역시":"광주광역시", "대전광역시":"대전광역시", "울산광역시":"울산광역시", "세종특별자치시":"세종특별자치시",
+  "충청북도":"충청북도", "충청남도":"충청남도", "전라북도":"전라북도", "전라남도":"전라남도", "경상북도":"경상북도", "경상남도":"경상남도", "제주특별자치도":"제주특별자치도",
+  // 최신 행정구역 개편 명칭(지도 geojson은 구/舊명칭 기준이므로 구명칭으로 통일)
+  "전북특별자치도":"전라북도", "강원특별자치도":"강원도"
+};
+
+
+// 바운딩 박스 중심(getBounds().getCenter())이 부속 도서(울릉군, 강화군/옹진군 등)까지 포함해
+// 실제 도심과 동떨어진 위치에 라벨이 찍히는 시도들은 도청 소재지 등 실질적 중심지 좌표로 보정한다.
+const SIDO_LABEL_OVERRIDE = {
+  "경상북도": [36.568, 128.729],   // 안동시 일대
+  "인천광역시": [37.456, 126.705], // 인천 본토(남동구 일대)
+  "경기도": [37.264, 127.029],     // 수원시 일대
+  "충청북도": [36.642, 127.489]    // 청주시 일대
+};
+
+let currentFilters = { year: '2026', dept: null, type: null };
+let activeLayerScope = 'A';
+let showLabels = true;
+let rawCsvData = [];
+let map, geojsonGroup, labelGroup;
+let selectedLayer = null;
+
+map = L.map('map', { zoomControl: false }).setView([36.2, 127.8], 7.5);
+L.control.zoom({ position: 'topleft' }).addTo(map);
+geojsonGroup = L.layerGroup().addTo(map);
+labelGroup = L.layerGroup().addTo(map);
+
+window.addEventListener('DOMContentLoaded', () => {
+  fetch('./bprdata.csv')
+    .then(res => {
+      if(!res.ok) throw new Error("bprdata.csv 로드 실패");
+      return res.text();
+    })
+    .then(text => {
+      const parsed = Papa.parse(text, { 
+        header: true, 
+        skipEmptyLines: true,
+        transformHeader: h => h ? h.trim() : ""
+      });
+      rawCsvData = parsed.data.filter(r => r['시도']).map(processCsvRow);
+      initDashboard();
+    })
+    .catch(err => {
+      alert("데이터 로드 실패: " + err.message);
+    });
+});
+
+function initDashboard() {
+  renderMap();
+  calculateGlobalStats();
+  renderGlobalAccordion(); 
+}
+
+function toggleFilter(category, value) {
+  if (category === 'year') {
+    currentFilters.year = currentFilters.year === value ? null : value;
+    document.getElementById('btn-yr-2025').classList.toggle('active', currentFilters.year === '2025');
+    document.getElementById('btn-yr-2026').classList.toggle('active', currentFilters.year === '2026');
+  } else if (category === 'dept') {
+    currentFilters.dept = currentFilters.dept === value ? null : value;
+    ['지방세', '세외수입', '기타'].forEach(d => {
+      document.getElementById(`btn-dept-${d}`).classList.toggle('active', currentFilters.dept === d);
+    });
+  } else if (category === 'type') {
+    currentFilters.type = currentFilters.type === value ? null : value;
+    ['신용정보', '전자압류', 'EGS'].forEach(t => {
+      document.getElementById(`btn-type-${t}`).classList.toggle('active', currentFilters.type === t);
+    });
+  }
+  renderMap();
+  calculateGlobalStats();
+}
+
+function setTargetLayer(scope) {
+  activeLayerScope = scope;
+  document.getElementById('btn-layer-A').classList.toggle('active', scope === 'A');
+  document.getElementById('btn-layer-B').classList.toggle('active', scope === 'B');
+  renderMap();
+}
+
+function toggleLabelVisibility() {
+  showLabels = !showLabels;
+  document.getElementById('btn-label-toggle').classList.toggle('active', showLabels);
+  if (showLabels) { map.addLayer(labelGroup); } else { map.removeLayer(labelGroup); }
+}
+
+function cleanNum(val) {
+  if(!val) return 0;
+  let s = String(val).replace(/[^0-9.-]/g, '');
+  return parseFloat(s) || 0;
+}
+
+function processCsvRow(row) {
+  let rawSido = (row['시도'] || '').trim();
+  let matchedSido = SIDO_NAME_MAP[rawSido] || rawSido;
+
+  // Layer 칼럼이 시도(A) / 시군구(B)를 정확히 구분해 주므로 이를 그대로 신뢰한다.
+  let layer = (row['Layer'] || '').trim().toUpperCase() === 'A' ? 'A' : 'B';
+
+  let rawSigungu = (row['시군구'] || '').toString().trim();
+  // A레이어(시도 자체 계약) 행은 시군구 칸에 도 자체 명칭이 들어있으므로 시도명으로 통일해서 저장한다.
+  let matchedSigungu = layer === 'A' ? matchedSido : (DISTRICT_MAP[rawSigungu] || rawSigungu);
+
+  let dept = (row['부서명'] || '').trim();
+
+  let v_신용 = row['신용정보(\\)'] || 0;
+  let v_전자 = row['전자압류(\\)'] || 0;
+  let v_egs = row['EGS (\\)'] || 0;
+
+  let amt_total = cleanNum(row['합계 (\\)']) * 1000;
+
+  return {
+    layer: layer,
+    year: String(row['계약연도'] || '').trim(),
+    sido: matchedSido,
+    sigungu: matchedSigungu,
+    anyContract: parseInt(row['계약유형_계약여부']) === 1 || parseInt(row['부서_계약여부']) === 1,
+    지방세: dept === '지방세',
+    세외수입: dept === '세외수입',
+    기타: dept === '기타',
+    신용정보: parseInt(row['신용정보']) === 1,
+    전자압류: parseInt(row['전자압류']) === 1,
+    EGS: parseInt(row['EGS']) === 1,
+    amt_total: amt_total,
+    amt_지방세: dept === '지방세' ? amt_total : 0,
+    amt_세외수입: dept === '세외수입' ? amt_total : 0,
+    amt_기타: dept === '기타' ? amt_total : 0,
+    amt_신용정보: cleanNum(v_신용) * 1000,
+    amt_전자압류: cleanNum(v_전자) * 1000,
+    amt_EGS: cleanNum(v_egs) * 1000
+  };
+}
+
+function getFilteredData() {
+  return rawCsvData.filter(item => {
+    if (currentFilters.year && item.year !== currentFilters.year) return false;
+    if (currentFilters.dept && !item[currentFilters.dept]) return false;
+    if (currentFilters.type && !item[currentFilters.type]) return false;
+    return true;
+  });
+}
+
+// 특정 시도에 실제로 속한 시군구(하위 행정구역) 이름 목록을 지도 데이터(SIGUNGU_GEOJSON)에서
+// 직접 가져온다. CSV에 등장한 지역 수가 아니라 진짜 행정구역 총 개수를 파악하기 위함이다.
+function getRealDistrictsForSido(sidoName) {
+  let names = new Set();
+  (SIGUNGU_GEOJSON.features || []).forEach(f => {
+    let props = f.properties || {};
+    let featureSido = SIDO_NAME_MAP[props.sido] || props.sido;
+    if (featureSido === sidoName) {
+      let sigungu = props.SIG_KOR_NM || props.SIGUNGU_NM || props.sigungu_name || props.name;
+      if (sigungu) names.add(DISTRICT_MAP[sigungu] || sigungu);
+    }
+  });
+  return Array.from(names);
+}
+
+function checkCoverage(sidoName, sigunguName = null) {
+  const filtered = getFilteredData();
+  const isDefaultFilter = !currentFilters.dept && !currentFilters.type;
+
+  if (activeLayerScope === 'A') {
+    let normSido = SIDO_NAME_MAP[sidoName] || sidoName;
+    return filtered.some(d => d.sido === normSido && (isDefaultFilter ? d.anyContract : true));
+  } else {
+    if (!sigunguName) return false;
+    let normSigungu = DISTRICT_MAP[sigunguName] || sigunguName;
+    // 북구/남구/중구/동구처럼 여러 시도에 걸쳐 이름이 겹치는 시군구가 있으므로,
+    // sidoName이 주어졌다면 반드시 소속 시도까지 함께 일치하는 항목만 인정한다.
+    let normSido = sidoName ? (SIDO_NAME_MAP[sidoName] || sidoName) : null;
+    return filtered.some(d => d.sigungu === normSigungu && (!normSido || d.sido === normSido) && (isDefaultFilter ? d.anyContract : true));
+  }
+}
+
+function renderMap() {
+  geojsonGroup.clearLayers();
+  labelGroup.clearLayers();
+  selectedLayer = null;
+  
+  const targetGeoJson = activeLayerScope === 'A' ? SIDO_GEOJSON : SIGUNGU_GEOJSON;
+  
+  let geoJsonLayer = L.geoJSON(targetGeoJson, {
+    style: function(feature) {
+      let props = feature.properties || {};
+      let isCovered = false;
+      
+      if (activeLayerScope === 'A') {
+        let sido = props.CTP_KOR_NM || props.SIDONM || props.sido_name || props.name;
+        if (sido) {
+          let matchedSido = SIDO_NAME_MAP[sido] || sido;
+          isCovered = checkCoverage(matchedSido, null);
+        }
+      } else {
+        let sigungu = props.SIG_KOR_NM || props.SIGUNGU_NM || props.sigungu_name || props.name;
+        if (sigungu) {
+          // 북구/남구/중구/동구 등 여러 시도에 동일한 이름의 시군구가 존재하므로,
+          // geojson feature에 담긴 소속 시도 정보(props.sido)로 정확히 구분해서 조회한다.
+          let matchedSigungu = DISTRICT_MAP[sigungu] || sigungu;
+          let matchedSido = SIDO_NAME_MAP[props.sido] || props.sido || null;
+          isCovered = checkCoverage(matchedSido, matchedSigungu);
+        }
+      }
+      
+      return {
+        fillColor: isCovered ? '#003087' : '#d4d9e5',
+        fillOpacity: isCovered ? 0.75 : 0.4,
+        color: '#ffffff',
+        weight: activeLayerScope === 'A' ? 1.8 : 1,
+      };
+    },
+    onEachFeature: function(feature, layer) {
+      let props = feature.properties || {};
+      let displayName = "";
+      let matchedSido = "";
+
+      if (activeLayerScope === 'A') {
+        let sido = props.CTP_KOR_NM || props.SIDONM || props.sido_name || props.name;
+        if (!sido) return;
+        matchedSido = SIDO_NAME_MAP[sido] || sido;
+        displayName = matchedSido;
+      } else {
+        let sigungu = props.SIG_KOR_NM || props.SIGUNGU_NM || props.sigungu_name || props.name;
+        if (!sigungu) return;
+        displayName = DISTRICT_MAP[sigungu] || sigungu;
+        // 북구/남구/중구/동구 등 이름이 겹치는 시군구가 여러 시도에 존재하므로,
+        // rawCsvData에서 이름만으로 시도를 추측하지 않고 geojson feature의
+        // 소속 시도 정보(props.sido)를 그대로 사용해 정확히 매칭한다.
+        matchedSido = SIDO_NAME_MAP[props.sido] || props.sido || "알수없음";
+      }
+      
+      layer.on({
+        click: (e) => { 
+          selectFeatureLayer(e.target);
+          showTargetDetailPanel(matchedSido, displayName);
+        }
+      });
+    }
+  });
+
+  geoJsonLayer.addTo(geojsonGroup);
+
+  // ★ 라벨 좌표 동적 추출 로직 (Centroids.js 의존성 제거 완벽 해결)
+  geoJsonLayer.eachLayer(function(layer) {
+    let props = layer.feature.properties || {};
+    let displayName = "";
+    if (activeLayerScope === 'A') {
+      let sido = props.CTP_KOR_NM || props.SIDONM || props.sido_name || props.name;
+      if (sido) displayName = SIDO_NAME_MAP[sido] || sido;
+    } else {
+      let sigungu = props.SIG_KOR_NM || props.SIGUNGU_NM || props.sigungu_name || props.name;
+      if (sigungu) displayName = DISTRICT_MAP[sigungu] || sigungu;
+    }
+    
+    if (displayName) {
+      // 부속 도서 때문에 바운딩 박스 중심이 왜곡되는 시도는 보정 좌표를 사용한다.
+      let center = (activeLayerScope === 'A' && SIDO_LABEL_OVERRIDE[displayName])
+        ? L.latLng(SIDO_LABEL_OVERRIDE[displayName])
+        : layer.getBounds().getCenter();
+      L.marker(center, {
+        icon: L.divIcon({ className: 'map-label', html: displayName, iconSize: [120, 20], iconAnchor: [60, 10] })
+      }).addTo(labelGroup);
+    }
+  });
+
+  if (!showLabels) { map.removeLayer(labelGroup); }
+}
+
+// 지도에서 지역을 클릭했을 때, 이전에 선택했던 지역의 테두리는 원래대로 되돌리고
+// 새로 선택한 지역에는 두꺼운 검은 테두리를 입혀 다른 지역과 명확히 구분되도록 한다.
+function selectFeatureLayer(layer) {
+  if (selectedLayer && selectedLayer !== layer) {
+    selectedLayer.setStyle({
+      color: '#ffffff',
+      weight: activeLayerScope === 'A' ? 1.8 : 1
+    });
+  }
+  layer.setStyle({ color: '#111827', weight: 4 });
+  layer.bringToFront();
+  selectedLayer = layer;
+}
+
+function calculateGlobalStats() {
+  const filtered = getFilteredData();
+  let connectedA = new Set();
+  let connectedB = new Set();
+  let sumA = 0, sumB = 0;
+  
+  filtered.forEach(d => {
+    if(d.anyContract || currentFilters.dept || currentFilters.type) {
+      if(d.layer === 'A') {
+        connectedA.add(d.sido);
+        sumA += d.amt_total;
+      } else if(d.layer === 'B') {
+        connectedB.add(`${d.sido}_${d.sigungu}`);
+        sumB += d.amt_total;
+      }
+    }
+  });
+
+  document.getElementById('total-a-count').innerText = `${connectedA.size} / 17 개 시도 체결`;
+  document.getElementById('total-a-amt').innerText = `${sumA.toLocaleString()} 원`;
+  document.getElementById('total-b-count').innerText = `${connectedB.size} / 230 개 지역 체결`;
+  document.getElementById('total-b-amt').innerText = `${sumB.toLocaleString()} 원`;
+  document.getElementById('total-all-amt').innerText = `${(sumA + sumB).toLocaleString()} 원`;
+}
+
+// ★ 클릭한 타겟(A 또는 B)의 1:1 맞춤 금액 산출 패널 적용 완료
+function showTargetDetailPanel(sido, sigungu) {
+  document.getElementById('detail-fallback').style.display = 'none';
+  const contentEl = document.getElementById('detail-content');
+  contentEl.style.display = 'block';
+  
+  let isScopeA = activeLayerScope === 'A';
+  let titleName = isScopeA ? sido : sigungu;
+  // 중구/북구/남구/동구처럼 이름이 겹치는 시군구가 여러 시도에 존재하므로,
+  // B레이어(시군구) 선택 시에는 소속 시도명을 작은 글씨로 함께 표시해 혼란을 줄인다.
+  let titleSuffix = isScopeA ? '' : ` <span style="font-size:12px; font-weight:400; color:#64748b;">(${sido})</span>`;
+  let layerLabel = isScopeA ? 'A레이어(광역)' : 'B레이어(기초)';
+  
+  // 1. 최상단 카드: 클릭한 해당 지역(A면 A, B면 B)만의 단독 데이터 계산
+  let targetItems = rawCsvData.filter(d => 
+    isScopeA ? (d.layer === 'A' && d.sido === sido) 
+             : (d.layer === 'B' && d.sido === sido && d.sigungu === sigungu)
+  );
+  
+  let hasContract = targetItems.some(d => d.anyContract);
+  let statusALabel = hasContract ? '계약체결' : '미체결';
+  let statusAClass = hasContract ? 'active-contract' : 'no-contract';
+  let targetAmt2025 = targetItems.filter(d => d.year === '2025').reduce((acc, curr) => acc + curr.amt_total, 0);
+  let targetAmt2026 = targetItems.filter(d => d.year === '2026').reduce((acc, curr) => acc + curr.amt_total, 0);
+
+  // 2. 하단 리스트: 클릭한 지역이 속한 시도의 모든 B레이어 현황
+  // (실제 하위 시군구 "총 개수"는 CSV에 등장한 지역 수가 아니라, 지도 데이터(SIGUNGU_GEOJSON)에
+  //  존재하는 진짜 행정구역 수를 기준으로 삼아야 "n개 중 n개 체결"처럼 왜곡되지 않는다.)
+  let uniqueBMap = {};
+  getRealDistrictsForSido(sido).forEach(name => {
+    uniqueBMap[name] = { sigungu: name, anyContract: false, 신용정보: false, 전자압류: false, EGS: false };
+  });
+
+  let subBItems = rawCsvData.filter(d => d.layer === 'B' && d.sido === sido);
+  subBItems.forEach(b => {
+    if (!uniqueBMap[b.sigungu]) {
+      uniqueBMap[b.sigungu] = { sigungu: b.sigungu, anyContract: false, 신용정보: false, 전자압류: false, EGS: false };
+    }
+    if(b.anyContract) uniqueBMap[b.sigungu].anyContract = true;
+    if(b.신용정보) uniqueBMap[b.sigungu].신용정보 = true;
+    if(b.전자압류) uniqueBMap[b.sigungu].전자압류 = true;
+    if(b.EGS) uniqueBMap[b.sigungu].EGS = true;
+  });
+  
+  let uniqueBList = Object.values(uniqueBMap).sort((a, b) => a.sigungu.localeCompare(b.sigungu, 'ko'));
+  let activeBCount = uniqueBList.filter(b => b.anyContract).length;
+
+  let listHtml = '';
+  uniqueBList.forEach(b => {
+    let isCurrent = (!isScopeA && b.sigungu === sigungu);
+    let bgStyle = isCurrent ? 'background:#FAEEDA; border-radius:6px; padding:6px 4px;' : 'padding-bottom:6px; border-bottom:1px dashed #edf2f7;';
+    
+    listHtml += `
+      <div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center; ${bgStyle}">
+        <span style="font-weight:${isCurrent?'700':'600'}; color:${isCurrent?'#7c3a00':'#1a2340'};">• ${b.sigungu}</span>
+        <div style="display:flex; gap:3px;">
+          <span class="badge-light ${b.신용정보?'on':''}">신용</span>
+          <span class="badge-light ${b.전자압류?'on':''}">압류</span>
+          <span class="badge-light ${b.EGS?'on':''}">ESG</span>
+        </div>
+      </div>
+    `;
+  });
+
+  contentEl.innerHTML = `
+    <div style="background:#f0f4fa; padding:12px; border-radius:6px; margin-bottom:12px;">
+      <h3 style="font-size:16px; margin-bottom:8px; color:#003087;">${titleName}${titleSuffix} 계약현황</h3>
+      <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span style="font-size:13px; color:#475569;">${layerLabel} 여부</span>
+        <span class="badge-light ${statusAClass}">${statusALabel}</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span style="font-size:13px; color:#475569;">2025년 체결 금액</span>
+        <span style="font-weight:700; color:#0f172a;">${targetAmt2025.toLocaleString()}원</span>
+      </div>
+      <div style="display:flex; justify-content:space-between;">
+        <span style="font-size:13px; color:#475569;">2026년 체결 금액</span>
+        <span style="font-weight:700; color:#0f172a;">${targetAmt2026.toLocaleString()}원</span>
+      </div>
+    </div>
+    
+    <div style="border-top:1px solid #e2e8f0; padding-top:12px;">
+      <h4 style="font-size:14px; margin-bottom:6px; color:#334155;">${sido} 하위 시군구(B) 연동 현황</h4>
+      <p style="font-size:12px; color:#64748b; margin-bottom:8px;">
+        소속 지자체 <strong>${uniqueBList.length}개 중 ${activeBCount}개 지역 체결</strong>
+      </p>
+      <div style="max-height:200px; overflow-y:auto; padding-right:4px;">
+        ${listHtml || '<p style="color:#94a3b8; font-size:12px;">하위 지자체 데이터가 존재하지 않습니다.</p>'}
+      </div>
+    </div>
+  `;
+}
+
+// 금액 증감을 세모 아이콘 + 색상으로 표시하는 셀 HTML을 만든다.
+function formatDiffCell(diff) {
+  if (diff > 0) {
+    return `<span style="color:#c0392b; white-space:nowrap;"><span class="tri-up"></span>${diff.toLocaleString()}</span>`;
+  } else if (diff < 0) {
+    return `<span style="color:#2563eb; white-space:nowrap;"><span class="tri-down"></span>${Math.abs(diff).toLocaleString()}</span>`;
+  }
+  return `<span style="color:#94a3b8;">-</span>`;
+}
+
+function renderGlobalAccordion() {
+  const container = document.getElementById('sido-accordion-container');
+  container.innerHTML = '';
+  
+  const uniqueSidos = ["서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시", "대전광역시", "울산광역시", "세종특별자치시", "경기도", "강원도", "충청북도", "충청남도", "전라북도", "전라남도", "경상북도", "경상남도", "제주특별자치도"];
+
+  uniqueSidos.forEach(sidoName => {
+    let sidosData = rawCsvData.filter(d => d.sido === sidoName);
+
+    let sumFor = (yr, key) => sidosData.filter(d => d.year === yr).reduce((a,c) => a + c[key], 0);
+
+    let y25_지방세 = sumFor('2025','amt_지방세');
+    let y25_세외수입 = sumFor('2025','amt_세외수입');
+    let y25_기타 = sumFor('2025','amt_기타');
+    let y25_total = y25_지방세 + y25_세외수입 + y25_기타;
+
+    let y26_지방세 = sumFor('2026','amt_지방세');
+    let y26_세외수입 = sumFor('2026','amt_세외수입');
+    let y26_기타 = sumFor('2026','amt_기타');
+    let y26_total = y26_지방세 + y26_세외수입 + y26_기타;
+
+    let grandTotal = y25_total + y26_total;
+    let trendDiff = y26_total - y25_total;
+    let trendColor = trendDiff > 0 ? '#c0392b' : (trendDiff < 0 ? '#2563eb' : '#003087');
+    let trendIconHtml = trendDiff > 0
+      ? '<span class="tri-up" style="margin-right:2px;"></span>'
+      : (trendDiff < 0 ? '<span class="tri-down" style="margin-right:2px;"></span>' : '');
+
+    const accordionItem = document.createElement('div');
+    accordionItem.className = 'accordion-item';
+    
+    accordionItem.innerHTML = `
+      <div class="accordion-header" onclick="toggleAccordionElement(this)">
+        <span style="pointer-events:none;">${sidoName}</span>
+        <div style="display:flex; align-items:center; gap:10px; pointer-events:none;">
+          <span class="amt-indicator" style="color:${trendColor}; white-space:nowrap;">${trendIconHtml}${grandTotal.toLocaleString()}원</span>
+          <span class="toggle-indicator" style="color:#94a3b8; font-size:12px;">▼</span>
+        </div>
+      </div>
+      <div class="accordion-content">
+        <table>
+          <thead>
+            <tr>
+              <th>구분</th>
+              <th style="text-align:right;">2025</th>
+              <th style="text-align:right;">2026</th>
+              <th style="text-align:right;">증감</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>지방세</td>
+              <td style="text-align:right;">${y25_지방세.toLocaleString()}원</td>
+              <td style="text-align:right;">${y26_지방세.toLocaleString()}원</td>
+              <td style="text-align:right;">${formatDiffCell(y26_지방세 - y25_지방세)}</td>
+            </tr>
+            <tr>
+              <td>세외수입</td>
+              <td style="text-align:right;">${y25_세외수입.toLocaleString()}원</td>
+              <td style="text-align:right;">${y26_세외수입.toLocaleString()}원</td>
+              <td style="text-align:right;">${formatDiffCell(y26_세외수입 - y25_세외수입)}</td>
+            </tr>
+            <tr>
+              <td>기타</td>
+              <td style="text-align:right;">${y25_기타.toLocaleString()}원</td>
+              <td style="text-align:right;">${y26_기타.toLocaleString()}원</td>
+              <td style="text-align:right;">${formatDiffCell(y26_기타 - y25_기타)}</td>
+            </tr>
+            <tr style="border-top:2px solid #1a2340; background:#f4f6fb; font-weight:700;">
+              <td>합계</td>
+              <td style="text-align:right;">${y25_total.toLocaleString()}원</td>
+              <td style="text-align:right;">${y26_total.toLocaleString()}원</td>
+              <td style="text-align:right;">${formatDiffCell(trendDiff)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+    container.appendChild(accordionItem);
+  });
+}
+
+// 증감 세모(색상)와 아코디언 펼침 표시(회색 화살표)가 헷갈리지 않도록,
+// 펼침 표시는 별도의 중립 회색 요소로 분리해서 토글한다.
+function toggleAccordionElement(headerEl) {
+  const contentEl = headerEl.nextElementSibling;
+  const toggleEl = headerEl.querySelector('.toggle-indicator');
+  const isVisible = contentEl.style.getPropertyValue('display') === 'block';
+  
+  contentEl.style.setProperty('display', isVisible ? 'none' : 'block');
+  toggleEl.innerText = isVisible ? '▼' : '▲';
+}
+</script>
+</body>
+</html>
